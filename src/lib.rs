@@ -50,14 +50,15 @@ fn decode_from_eth_abi(input: &[u8]) -> Result<pgrx::JsonB> {
 fn decode_from_proto(input: &[u8]) -> Result<pgrx::JsonB> {
     let mut value: serde_json::Value = serde_json::from_slice(input)?;
     // PFM is sometimes a stringified JSON, in that case we transform it into the JSON object.
-    if let Some(memo) = value.get_mut("memo") {
-        if memo.is_string() {
-            let payload: serde_json::Value = match serde_json::from_str(memo.as_str().unwrap()) {
+    if let Some(extension) = value.get_mut("extension") {
+        if extension.is_string() {
+            let payload: serde_json::Value = match serde_json::from_str(extension.as_str().unwrap())
+            {
                 // Do nothing if we cannot decode.
                 Err(_) => return Ok(pgrx::JsonB(value)),
                 Ok(payload) => payload,
             };
-            *memo = payload;
+            *extension = payload;
         }
     }
     Ok(pgrx::JsonB(value))
@@ -83,18 +84,18 @@ mod tests {
     #[test]
     fn test_decode_transfer_packet_cosmos() {
         let json = decode_transfer_packet(
-            &serde_json::to_vec(&json!({"memo": 1})).unwrap(),
+            &serde_json::to_vec(&json!({"extension": 1})).unwrap(),
             "cosmos",
             true,
         );
-        assert_eq!(json.0, json!({"memo": 1}));
+        assert_eq!(json.0, json!({"extension": 1}));
 
         let json = decode_transfer_packet(
-            &serde_json::to_vec(&json!({"memo": "{\"foo\": 1}"})).unwrap(),
+            &serde_json::to_vec(&json!({"extension": "{\"foo\": 1}"})).unwrap(),
             "cosmos",
             true,
         );
-        assert_eq!(json.0, json!({"memo": {"foo": 1}}));
+        assert_eq!(json.0, json!({"extension": {"foo": 1}}));
     }
 }
 
