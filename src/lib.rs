@@ -34,21 +34,55 @@ fn decode_from_eth_abi(input: &[u8], extension_format: &str) -> Result<pgrx::Jso
 
     sol! {
         #[derive(Serialize)]
-        struct Token {
-            string denom;
+        struct TokenV1 {
+            string  denom;
             uint128 amount;
         }
 
         #[derive(Serialize)]
-        struct RelayPacket {
+        struct RelayPacketV1 {
             bytes sender;
             bytes receiver;
-            Token[] tokens;
+            TokenV1[] tokens;
+            string extension;
+        }
+
+        #[derive(Serialize)]
+        struct TokenV2 {
+            string  denom;
+            uint128 amount;
+            uint128 fee;
+        }
+
+        #[derive(Serialize)]
+        struct RelayPacketV2 {
+            bytes sender;
+            bytes receiver;
+            TokenV2[] tokens;
             string extension;
         }
     }
 
-    let packet = RelayPacket::abi_decode_params(input, false)?;
+    let packet = match RelayPacketV2::abi_decode_params(input, false) {
+        Err(_) => {
+            let v1 = RelayPacketV1::abi_decode_params(input, false)?;
+            RelayPacketV2 {
+                sender: v1.sender,
+                receiver: v1.receiver,
+                tokens: v1
+                    .tokens
+                    .into_iter()
+                    .map(|t1| TokenV2 {
+                        denom: t1.denom,
+                        amount: t1.amount,
+                        fee: 0,
+                    })
+                    .collect(),
+                extension: v1.extension,
+            }
+        }
+        Ok(packet) => packet,
+    };
 
     let data = match extension_format {
         "string" => serde_json::to_value(&packet)?,
