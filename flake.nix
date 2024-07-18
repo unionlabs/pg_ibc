@@ -67,6 +67,7 @@
               libiconv
               pkg-config
             ];
+            PGRX_HOME = "";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             PGRX_PG_SYS_SKIP_BINDING_REWRITE = "1";
             BINDGEN_EXTRA_CLANG_ARGS = [
