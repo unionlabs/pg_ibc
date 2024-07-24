@@ -101,7 +101,7 @@ fn decode_from_eth_abi(input: &[u8], extension_format: &str) -> Result<pgrx::Jso
 fn decode_from_proto(input: &[u8], extension_format: &str) -> Result<pgrx::JsonB> {
     let mut value: serde_json::Value = serde_json::from_slice(input)?;
     // PFM is sometimes a stringified JSON, in that case we transform it into the JSON object.
-    if let Some(extension) = value.get_mut("extension") {
+    if let Some(extension) = value.get_mut("memo") {
         if extension.is_string() && (extension_format == "json") {
             let payload: serde_json::Value = match serde_json::from_str(extension.as_str().unwrap())
             {
