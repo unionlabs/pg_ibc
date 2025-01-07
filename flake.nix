@@ -14,7 +14,7 @@
     treefmt-nix.url = "github:numtide/treefmt-nix";
 
   };
-  outputs = inputs@{ self, nixpkgs, crane, flake-parts, ... }:
+  outputs = inputs@{ self, nixpkgs, crane, flake-parts, rust-overlay, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         inputs.treefmt-nix.flakeModule
@@ -34,9 +34,18 @@
       };
       systems =
         [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" "x86_64-darwin" ];
-      perSystem = { self', system, lib, config, pkgs, ... }:
+      perSystem = { self', system, lib, config, ... }:
         let
-          craneLib = crane.lib.${system};
+          pkgs = import nixpkgs {
+            inherit system;
+            overlays = [ (import rust-overlay) ];
+          };
+
+          rust = pkgs.rust-bin.stable."1.76.0".default.override {
+            extensions = [ "rust-src" ];
+          };
+
+          craneLib = crane.lib.${system}.overrideToolchain rust;
         in
         {
           packages = rec {
@@ -67,7 +76,9 @@
               libiconv
               pkg-config
             ];
-            PGRX_HOME = "";
+            # PGRX_HOME needs an absolute path for `cargo pgrx init` to work, but must be empty when running `nix build`
+            # PGRX_HOME="";
+            PGRX_HOME="/home/jurriaan/.pgrx";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             PGRX_PG_SYS_SKIP_BINDING_REWRITE = "1";
             BINDGEN_EXTRA_CLANG_ARGS = [
