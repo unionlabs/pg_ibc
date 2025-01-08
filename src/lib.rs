@@ -3,9 +3,7 @@ use pgrx::prelude::*;
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::zkgm::parse_ucs03_zkgm_0;
-
-mod zkgm;
+mod ucs03_zkgm_0;
 
 pgrx::pg_module_magic!();
 
@@ -34,38 +32,61 @@ pub fn decode_transfer_packet_0_1(
     result.unwrap_or(pgrx::JsonB(serde_json::Value::Null))
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "UPPERCASE")]
+#[serde(tag = "code")]
+enum DecodeResult {
+    Ok(DecodeOk),
+    Error(DecodeError),
+}
+
+#[derive(Serialize)]
+struct DecodeOk {
+    result: Value,
+}
+
+#[derive(Serialize)]
+struct DecodeError {
+    details: ErrorDetails,
+}
+
+#[derive(Serialize)]
+struct ErrorDetails {
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<String>,
+}
+
 #[pg_extern(immutable, parallel_safe)]
-fn decode_0_1(input: &[u8], channel_version: &str) -> pgrx::JsonB {
-    #[derive(Serialize)]
-    #[serde(rename_all = "UPPERCASE")]
-    #[serde(tag = "code")]
-    enum DecodeResult {
-        Ok(DecodeOk),
-        Error(DecodeError),
-    }
-
-    #[derive(Serialize)]
-    struct DecodeOk {
-        result: Value,
-    }
-
-    #[derive(Serialize)]
-    struct DecodeError {
-        details: ErrorDetails,
-    }
-
-    #[derive(Serialize)]
-    struct ErrorDetails {
-        message: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        source: Option<String>,
-    }
-
+fn decode_ack_0_1(packet: &[u8], ack: &[u8], channel_version: &str) -> pgrx::JsonB {
     let result = match channel_version {
-        "ucs03-zkgm-0" => parse_ucs03_zkgm_0(input),
+        "ucs03-zkgm-0" => ucs03_zkgm_0::ack::decode(packet, ack),
+        _ => Err(
+            anyhow::anyhow!("unsupported channel version for: {}", channel_version)
+                .context("selecting ack decoder"),
+        ),
+    };
+
+    let result = match result {
+        Ok(result) => DecodeResult::Ok(DecodeOk { result }),
+        Err(err) => DecodeResult::Error(DecodeError {
+            details: ErrorDetails {
+                message: err.to_string(),
+                source: err.source().map(|s| s.to_string()),
+            },
+        }),
+    };
+
+    pgrx::JsonB(serde_json::to_value(result).unwrap())
+}
+
+#[pg_extern(immutable, parallel_safe)]
+fn decode_packet_0_1(input: &[u8], channel_version: &str) -> pgrx::JsonB {
+    let result = match channel_version {
+        "ucs03-zkgm-0" => ucs03_zkgm_0::packet::decode(input),
         _ => Err(
             anyhow::anyhow!("unsupported channel version: {}", channel_version)
-                .context("while selecting decoder"),
+                .context("selecting packet decoder"),
         ),
     };
 
@@ -205,64 +226,139 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_success() {
-        let json = decode_0_1(&hex::decode("0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014779877a7b0d9e8603169ddbd7836e478b462478900000000000000000000000000000000000000000000000000000000000000000000000000000000000000044c494e4b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f436861696e4c696e6b20546f6b656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014d1b482d1b947a96e96c9b76d15de34f7f70a20a1000000000000000000000000").unwrap(), "ucs03-zkgm-0");
+    fn test_decode_packet_0_1_success() {
+        let json = decode_packet_0_1(&hex::decode("0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014779877a7b0d9e8603169ddbd7836e478b462478900000000000000000000000000000000000000000000000000000000000000000000000000000000000000044c494e4b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f436861696e4c696e6b20546f6b656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014d1b482d1b947a96e96c9b76d15de34f7f70a20a1000000000000000000000000").unwrap(), "ucs03-zkgm-0");
 
         dbg!(serde_json::to_string(&json.0).unwrap());
 
-        assert_eq!(json.0, json!({
-            "code": "OK",
-            "result": {
-              "instruction": {
-                "opcode": 3,
-                "operand": {
-                  "_type": "FungibleAssetOrder",
-                  "baseAmount": "0x0",
-                  "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
-                  "baseTokenName": "ChainLink Token",
-                  "baseTokenPath": "0x0",
-                  "baseTokenSymbol": "LINK",
-                  "quoteAmount": "0x0",
-                  "quoteToken": "0xd1b482d1b947a96e96c9b76d15de34f7f70a20a1",
-                  "receiver": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa",
-                  "sender": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa"
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "OK",
+              "result": {
+                "instruction": {
+                  "opcode": 3,
+                  "operand": {
+                    "_type": "FungibleAssetOrder",
+                    "baseAmount": "0x0",
+                    "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
+                    "baseTokenName": "ChainLink Token",
+                    "baseTokenPath": "0x0",
+                    "baseTokenSymbol": "LINK",
+                    "quoteAmount": "0x0",
+                    "quoteToken": "0xd1b482d1b947a96e96c9b76d15de34f7f70a20a1",
+                    "receiver": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa",
+                    "sender": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa"
+                  },
+                  "version": 0
                 },
-                "version": 0
-              },
-              "path": "0x0",
-              "salt": "0x0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc"
-            }
-          }));
+                "path": "0x0",
+                "salt": "0x0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc"
+              }
+            })
+        );
     }
 
     #[test]
-    fn test_decode_error_selecting_decoder() {
-        let json = decode_0_1(&hex::decode("0b").unwrap(), "does-not-exist");
+    fn test_decode_packet_0_1_error_selecting_decoder() {
+        let json = decode_packet_0_1(&hex::decode("0b").unwrap(), "does-not-exist");
 
         dbg!(serde_json::to_string(&json.0).unwrap());
 
-        assert_eq!(json.0, json!({
-            "code": "ERROR",
-            "details": {
-              "message": "while selecting decoder",
-              "source": "unsupported channel version: does-not-exist"
-            }
-          }));
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "ERROR",
+              "details": {
+                "message": "selecting packet decoder",
+                "source": "unsupported channel version: does-not-exist"
+              }
+            })
+        );
     }
 
     #[test]
-    fn test_decode_error_decoding() {
-        let json = decode_0_1(&hex::decode("0b").unwrap(), "ucs03-zkgm-0");
+    fn test_decode_packet_0_1_error_decoding() {
+        let json = decode_packet_0_1(&hex::decode("0b").unwrap(), "ucs03-zkgm-0");
 
         dbg!(serde_json::to_string(&json.0).unwrap());
 
-        assert_eq!(json.0, json!({
-            "code": "ERROR",
-            "details": {
-              "message": "decoding zkgm packet",
-              "source": "buffer overrun while deserializing"
-            }
-          }));
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "ERROR",
+              "details": {
+                "message": "decoding zkgm packet",
+                "source": "buffer overrun while deserializing"
+              }
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_ack_0_1_success() {
+        let json = decode_ack_0_1(&hex::decode("0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014779877a7b0d9e8603169ddbd7836e478b462478900000000000000000000000000000000000000000000000000000000000000000000000000000000000000044c494e4b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f436861696e4c696e6b20546f6b656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014d1b482d1b947a96e96c9b76d15de34f7f70a20a1000000000000000000000000").unwrap(), &hex::decode("0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000B0CAD000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000").unwrap(),"ucs03-zkgm-0");
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "OK",
+              "result": {
+                "innerAck": {
+                  "_type": "FungibleAssetOrder",
+                  "fillType": "0xb0cad0",
+                  "marketMaker": "0x"
+                },
+                "tag": "0x1"
+              }
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_ack_0_1_error_selecting_decoder() {
+        let json = decode_ack_0_1(
+            &hex::decode("0b").unwrap(),
+            &hex::decode("0b").unwrap(),
+            "does-not-exist",
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "ERROR",
+              "details": {
+                "message": "selecting ack decoder",
+                "source": "unsupported channel version for: does-not-exist"
+              }
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_ack_0_1_error_decoding() {
+        let json = decode_ack_0_1(
+            &hex::decode("0b").unwrap(),
+            &hex::decode("0b").unwrap(),
+            "ucs03-zkgm-0",
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "ERROR",
+              "details": {
+                "message": "decoding zkgm packet",
+                "source": "buffer overrun while deserializing"
+              }
+            })
+        );
     }
 }
 
