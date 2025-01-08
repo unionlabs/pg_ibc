@@ -5,56 +5,58 @@ use serde::Serialize;
 use serde_json::Value;
 
 // source: github:unionlabs/union/evm/contracts/apps/ucs/03-zkgm/Zkgm.sol
-const SYSCALL_FORWARD: u8 = 0x00;
-const SYSCALL_MULTIPLEX: u8 = 0x01;
-const SYSCALL_BATCH: u8 = 0x02;
-const SYSCALL_FUNGIBLE_ASSET_TRANSFER: u8 = 0x03;
+const OP_FORWARD: u8 = 0x00;
+const OP_MULTIPLEX: u8 = 0x01;
+const OP_BATCH: u8 = 0x02;
+const OP_FUNGIBLE_ASSET_TRANSFER: u8 = 0x03;
 
 sol! {
-
+    #[derive(Serialize)]
     struct ZkgmPacket {
         bytes32 salt;
         uint256 path;
-        SyscallPacket syscall;
-    }
-
-    struct SyscallPacket {
-        uint8 version;
-        uint8 index;
-        bytes packet;
-    }
-
-    struct ForwardPacket {
-        uint32 channelId;
-        uint64 timeoutHeight;
-        uint64 timeoutTimestamp;
-        SyscallPacket syscallPacket;
+        Instruction instruction;
     }
 
     #[derive(Serialize)]
-    struct MultiplexPacket {
+    struct Instruction {
+        uint8 version;
+        uint8 opcode;
+        bytes operand;
+    }
+
+    #[derive(Serialize)]
+    struct Forward {
+        uint32 channelId;
+        uint64 timeoutHeight;
+        uint64 timeoutTimestamp;
+        Instruction instruction;
+    }
+
+    #[derive(Serialize)]
+    struct Multiplex {
         bytes sender;
         bool eureka;
         bytes contractAddress;
         bytes contractCalldata;
     }
 
-    struct BatchPacket {
-        SyscallPacket[] syscallPackets;
+    #[derive(Serialize)]
+    struct Batch {
+        Instruction[] instructions;
     }
 
     #[derive(Serialize)]
-    struct FungibleAssetTransferPacket {
+    struct FungibleAssetOrder {
         bytes sender;
         bytes receiver;
-        bytes sentToken;
-        uint256 sentTokenPrefix;
-        string sentSymbol;
-        string sentName;
-        uint256 sentAmount;
-        bytes askToken;
-        uint256 askAmount;
-        bool onlyMaker;
+        bytes baseToken;
+        uint256 baseAmount;
+        string baseTokenSymbol;
+        string baseTokenName;
+        uint256 baseTokenPath;
+        bytes quoteToken;
+        uint256 quoteAmount;
     }
 }
 
@@ -62,7 +64,7 @@ sol! {
 struct ParsedZkgmPacket {
     pub salt: alloy_primitives::FixedBytes<32>,
     pub path: Uint<256, 4>,
-    pub syscall: ParsedSyscall,
+    pub instruction: ParsedInstruction,
 }
 
 impl TryFrom<ZkgmPacket> for ParsedZkgmPacket {
@@ -72,122 +74,121 @@ impl TryFrom<ZkgmPacket> for ParsedZkgmPacket {
         Ok(Self {
             salt: value.salt,
             path: value.path,
-            syscall: value
-                .syscall
+            instruction: value
+                .instruction
                 .try_into()
-                .context("decoding ZkgmPacket.syscall")?,
+                .context("decoding ZkgmPacket.instruction")?,
         })
     }
 }
 
 #[derive(Serialize)]
-struct ParsedSyscall {
+struct ParsedInstruction {
     pub version: u8,
-    pub index: u8,
-    pub packet: ParsedSyscallPacket,
+    pub opcode: u8,
+    pub operand: ParsedOperand,
 }
 
-impl TryFrom<SyscallPacket> for ParsedSyscall {
+impl TryFrom<Instruction> for ParsedInstruction {
     type Error = anyhow::Error;
 
-    fn try_from(value: SyscallPacket) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: Instruction) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
             version: value.version,
-            index: value.index,
-            packet: decode_packet(value.version, value.index, value.packet)
-                .context("decoding SyscallPacket.packet")?,
+            opcode: value.opcode,
+            operand: decode_operand(value.version, value.opcode, value.operand)
+                .context("decoding Instruction.operand")?,
         })
     }
 }
 
 #[derive(Serialize)]
-struct ParsedForwardPacket {
+struct ParsedForward {
     pub channel_id: u32,
     pub timeout_height: u64,
     pub timeout_timestamp: u64,
-    pub syscall_packet: Box<ParsedSyscall>,
+    pub instruction: Box<ParsedInstruction>,
 }
 
-impl TryFrom<ForwardPacket> for ParsedForwardPacket {
+impl TryFrom<Forward> for ParsedForward {
     type Error = anyhow::Error;
 
-    fn try_from(value: ForwardPacket) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: Forward) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
             channel_id: value.channelId,
             timeout_height: value.timeoutHeight,
             timeout_timestamp: value.timeoutTimestamp,
-            syscall_packet: Box::new(
+            instruction: Box::new(
                 value
-                    .syscallPacket
+                    .instruction
                     .try_into()
-                    .context("parsing ForwardPacket.syscall_packet")?,
+                    .context("parsing ForwardPacket.instruction")?,
             ),
         })
     }
 }
 
 #[derive(Serialize)]
-struct ParsedBatchPacket {
-    pub syscall_packets: Vec<ParsedSyscall>,
+struct ParsedBatch {
+    pub instructions: Vec<ParsedInstruction>,
 }
 
-impl TryFrom<BatchPacket> for ParsedBatchPacket {
+impl TryFrom<Batch> for ParsedBatch {
     type Error = anyhow::Error;
 
-    fn try_from(value: BatchPacket) -> std::result::Result<Self, Self::Error> {
+    fn try_from(value: Batch) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
-            syscall_packets: value
-                .syscallPackets
+            instructions: value
+                .instructions
                 .into_iter()
                 .enumerate()
-                .map(|(index, syscall_packet)| {
-                    syscall_packet
+                .map(|(index, instruction)| {
+                    instruction
                         .clone()
                         .try_into()
-                        .context(format!("parsing BatchPacket.syscall_packet[{index}]"))
+                        .context(format!("parsing BatchPacket.instructions[{index}]"))
                 })
                 .collect::<Result<_>>()?,
         })
     }
 }
 
-fn decode_packet(
+fn decode_operand(
     version: u8,
     index: u8,
     packet: alloy_sol_types::private::Bytes,
-) -> Result<ParsedSyscallPacket> {
+) -> Result<ParsedOperand> {
     Ok(match (version, index) {
-        (0, SYSCALL_FORWARD) => ParsedSyscallPacket::ForwardPacket(
-            <ForwardPacket>::abi_decode_sequence(&packet, false)
-                .context("decoding ForwardPacket")?
+        (0, OP_FORWARD) => ParsedOperand::Forward(
+            <Forward>::abi_decode_sequence(&packet, false)
+                .context("decoding Forward")?
                 .try_into()
-                .context("parsing ForwardPacket")?,
+                .context("parsing Forward")?,
         ),
-        (0, SYSCALL_MULTIPLEX) => ParsedSyscallPacket::MultiplexPacket(
-            <MultiplexPacket>::abi_decode_sequence(&packet, false)
-                .context("decoding ForwardPacket")?,
+        (0, OP_MULTIPLEX) => ParsedOperand::Multiplex(
+            <Multiplex>::abi_decode_sequence(&packet, false).context("decoding ForwardPacket")?,
         ),
-        (0, SYSCALL_BATCH) => ParsedSyscallPacket::BatchPacket(
-            <BatchPacket>::abi_decode_sequence(&packet, false)
+        (0, OP_BATCH) => ParsedOperand::Batch(
+            <Batch>::abi_decode_sequence(&packet, false)
                 .context("decoding BatchPacket")?
                 .try_into()
                 .context("parsing BatchPacket")?,
         ),
-        (0, SYSCALL_FUNGIBLE_ASSET_TRANSFER) => ParsedSyscallPacket::FungibleAssetTransferPacket(
-            <FungibleAssetTransferPacket>::abi_decode_sequence(&packet, false)
-                .context("decoding FungibleAssetTransferPacket")?,
+        (0, OP_FUNGIBLE_ASSET_TRANSFER) => ParsedOperand::FungibleAssetOrder(
+            <FungibleAssetOrder>::abi_decode_sequence(&packet, false)
+                .context("decoding FungibleAssetOrder")?,
         ),
-        _ => ParsedSyscallPacket::Unsupported(packet),
+        _ => ParsedOperand::Unsupported(packet),
     })
 }
 
 #[derive(Serialize)]
 #[serde(tag = "_type")]
-enum ParsedSyscallPacket {
-    ForwardPacket(ParsedForwardPacket),
-    MultiplexPacket(MultiplexPacket),
-    BatchPacket(ParsedBatchPacket),
-    FungibleAssetTransferPacket(FungibleAssetTransferPacket),
+enum ParsedOperand {
+    Forward(ParsedForward),
+    Multiplex(Multiplex),
+    Batch(ParsedBatch),
+    FungibleAssetOrder(FungibleAssetOrder),
     Unsupported(alloy_sol_types::private::Bytes),
 }
 
