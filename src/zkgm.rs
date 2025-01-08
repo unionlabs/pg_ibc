@@ -1,7 +1,6 @@
-use alloy_primitives::Uint;
 use alloy_sol_types::{sol, SolType};
 use anyhow::{Context, Result};
-use serde::Serialize;
+use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::Value;
 
 // source: github:unionlabs/union/evm/contracts/apps/ucs/03-zkgm/Zkgm.sol
@@ -18,7 +17,6 @@ sol! {
         Instruction instruction;
     }
 
-    #[derive(Serialize)]
     struct Instruction {
         uint8 version;
         uint8 opcode;
@@ -60,134 +58,56 @@ sol! {
     }
 }
 
-#[derive(Serialize)]
-struct ParsedZkgmPacket {
-    pub salt: alloy_primitives::FixedBytes<32>,
-    pub path: Uint<256, 4>,
-    pub instruction: ParsedInstruction,
-}
+impl Serialize for Instruction {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // Create a struct with version, opcode, and operand
+        let mut state = serializer.serialize_struct("Instruction", 3)?;
+        state.serialize_field("version", &self.version)?;
+        state.serialize_field("opcode", &self.opcode)?;
+        
+        // Custom serialization for operand based on version and opcode
+        let modified_operand = decode_operand(&self.version, &self.opcode, &self.operand).unwrap();
+        state.serialize_field("operand", &modified_operand)?;
 
-impl TryFrom<ZkgmPacket> for ParsedZkgmPacket {
-    type Error = anyhow::Error;
-
-    fn try_from(value: ZkgmPacket) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            salt: value.salt,
-            path: value.path,
-            instruction: value
-                .instruction
-                .try_into()
-                .context("decoding ZkgmPacket.instruction")?,
-        })
-    }
-}
-
-#[derive(Serialize)]
-struct ParsedInstruction {
-    pub version: u8,
-    pub opcode: u8,
-    pub operand: ParsedOperand,
-}
-
-impl TryFrom<Instruction> for ParsedInstruction {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Instruction) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            version: value.version,
-            opcode: value.opcode,
-            operand: decode_operand(value.version, value.opcode, value.operand)
-                .context("decoding Instruction.operand")?,
-        })
-    }
-}
-
-#[derive(Serialize)]
-struct ParsedForward {
-    pub channel_id: u32,
-    pub timeout_height: u64,
-    pub timeout_timestamp: u64,
-    pub instruction: Box<ParsedInstruction>,
-}
-
-impl TryFrom<Forward> for ParsedForward {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Forward) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            channel_id: value.channelId,
-            timeout_height: value.timeoutHeight,
-            timeout_timestamp: value.timeoutTimestamp,
-            instruction: Box::new(
-                value
-                    .instruction
-                    .try_into()
-                    .context("parsing ForwardPacket.instruction")?,
-            ),
-        })
-    }
-}
-
-#[derive(Serialize)]
-struct ParsedBatch {
-    pub instructions: Vec<ParsedInstruction>,
-}
-
-impl TryFrom<Batch> for ParsedBatch {
-    type Error = anyhow::Error;
-
-    fn try_from(value: Batch) -> std::result::Result<Self, Self::Error> {
-        Ok(Self {
-            instructions: value
-                .instructions
-                .into_iter()
-                .enumerate()
-                .map(|(index, instruction)| {
-                    instruction
-                        .clone()
-                        .try_into()
-                        .context(format!("parsing BatchPacket.instructions[{index}]"))
-                })
-                .collect::<Result<_>>()?,
-        })
+        state.end()
     }
 }
 
 fn decode_operand(
-    version: u8,
-    index: u8,
-    packet: alloy_sol_types::private::Bytes,
-) -> Result<ParsedOperand> {
-    Ok(match (version, index) {
-        (0, OP_FORWARD) => ParsedOperand::Forward(
-            <Forward>::abi_decode_sequence(&packet, false)
-                .context("decoding Forward")?
-                .try_into()
-                .context("parsing Forward")?,
+    version: &u8,
+    index: &u8,
+    packet: &alloy_sol_types::private::Bytes,
+) -> Result<Operand> {
+    Ok(match (*version, *index) {
+        (0, OP_FORWARD) => Operand::Forward(
+            <Forward>::abi_decode_sequence(packet, false)
+                .context("decoding Forward")?,
         ),
-        (0, OP_MULTIPLEX) => ParsedOperand::Multiplex(
-            <Multiplex>::abi_decode_sequence(&packet, false).context("decoding ForwardPacket")?,
+        (0, OP_MULTIPLEX) => Operand::Multiplex(
+            <Multiplex>::abi_decode_sequence(packet, false)
+            .context("decoding Multiplex")?,
         ),
-        (0, OP_BATCH) => ParsedOperand::Batch(
-            <Batch>::abi_decode_sequence(&packet, false)
-                .context("decoding BatchPacket")?
-                .try_into()
-                .context("parsing BatchPacket")?,
+        (0, OP_BATCH) => Operand::Batch(
+            <Batch>::abi_decode_sequence(packet, false)
+                .context("decoding Batch")?,
         ),
-        (0, OP_FUNGIBLE_ASSET_TRANSFER) => ParsedOperand::FungibleAssetOrder(
-            <FungibleAssetOrder>::abi_decode_sequence(&packet, false)
+        (0, OP_FUNGIBLE_ASSET_TRANSFER) => Operand::FungibleAssetOrder(
+            <FungibleAssetOrder>::abi_decode_sequence(packet, false)
                 .context("decoding FungibleAssetOrder")?,
         ),
-        _ => ParsedOperand::Unsupported(packet),
+        _ => Operand::Unsupported(packet.clone()),
     })
 }
 
 #[derive(Serialize)]
 #[serde(tag = "_type")]
-enum ParsedOperand {
-    Forward(ParsedForward),
+enum Operand {
+    Forward(Forward),
     Multiplex(Multiplex),
-    Batch(ParsedBatch),
+    Batch(Batch),
     FungibleAssetOrder(FungibleAssetOrder),
     Unsupported(alloy_sol_types::private::Bytes),
 }
@@ -196,9 +116,7 @@ pub fn parse_ucs03_zkgm_0(input: &[u8]) -> Result<Value> {
     let zkgm_packet =
         <ZkgmPacket>::abi_decode_sequence(input, false).context("decoding zkgm packet")?;
 
-    let parsed_zkgm_packet: ParsedZkgmPacket = zkgm_packet.try_into().context("parsing packet")?;
-
-    let value = serde_json::to_value(&parsed_zkgm_packet).context("formatting json")?;
+    let value = serde_json::to_value(&zkgm_packet).context("formatting json")?;
 
     Ok(value)
 }
