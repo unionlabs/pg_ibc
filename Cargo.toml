@@ -1,5 +1,5 @@
 [package]
-name = "pg_ibc"
+name = "pg_ibc_0_0_5"
 version = "0.0.5"
 edition = "2021"
 
