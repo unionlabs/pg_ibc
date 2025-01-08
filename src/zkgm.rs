@@ -67,7 +67,7 @@ impl Serialize for Instruction {
         let mut state = serializer.serialize_struct("Instruction", 3)?;
         state.serialize_field("version", &self.version)?;
         state.serialize_field("opcode", &self.opcode)?;
-        
+
         // Custom serialization for operand based on version and opcode
         let modified_operand = decode_operand(&self.version, &self.opcode, &self.operand).unwrap();
         state.serialize_field("operand", &modified_operand)?;
@@ -83,17 +83,14 @@ fn decode_operand(
 ) -> Result<Operand> {
     Ok(match (*version, *index) {
         (0, OP_FORWARD) => Operand::Forward(
-            <Forward>::abi_decode_sequence(packet, false)
-                .context("decoding Forward")?,
+            <Forward>::abi_decode_sequence(packet, false).context("decoding Forward")?,
         ),
         (0, OP_MULTIPLEX) => Operand::Multiplex(
-            <Multiplex>::abi_decode_sequence(packet, false)
-            .context("decoding Multiplex")?,
+            <Multiplex>::abi_decode_sequence(packet, false).context("decoding Multiplex")?,
         ),
-        (0, OP_BATCH) => Operand::Batch(
-            <Batch>::abi_decode_sequence(packet, false)
-                .context("decoding Batch")?,
-        ),
+        (0, OP_BATCH) => {
+            Operand::Batch(<Batch>::abi_decode_sequence(packet, false).context("decoding Batch")?)
+        }
         (0, OP_FUNGIBLE_ASSET_TRANSFER) => Operand::FungibleAssetOrder(
             <FungibleAssetOrder>::abi_decode_sequence(packet, false)
                 .context("decoding FungibleAssetOrder")?,
