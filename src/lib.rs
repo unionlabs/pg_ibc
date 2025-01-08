@@ -3,7 +3,6 @@ use pgrx::prelude::*;
 use serde::Serialize;
 use serde_json::Value;
 
-
 use crate::zkgm::parse_ucs03_zkgm_0;
 
 mod zkgm;
@@ -44,12 +43,12 @@ fn decode(input: &[u8], channel_version: &str) -> pgrx::JsonB {
         Ok(DecodeOk),
         Error(DecodeError),
     }
-    
+
     #[derive(Serialize)]
     struct DecodeOk {
         result: Value,
     }
-    
+
     #[derive(Serialize)]
     struct DecodeError {
         details: ErrorDetails,
@@ -61,16 +60,23 @@ fn decode(input: &[u8], channel_version: &str) -> pgrx::JsonB {
         #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<String>,
     }
-    
+
     let result = match channel_version {
         "usc03-zkgm-0" => parse_ucs03_zkgm_0(input),
-        _ => Err(anyhow::anyhow!("unsupported channel version: {}", channel_version)
-            .context("while selecting decoder")),
+        _ => Err(
+            anyhow::anyhow!("unsupported channel version: {}", channel_version)
+                .context("while selecting decoder"),
+        ),
     };
 
     let result = match result {
         Ok(result) => DecodeResult::Ok(DecodeOk { result }),
-        Err(err) => DecodeResult::Error(DecodeError { details: ErrorDetails { message: err.to_string(), source: err.source().map(|s| s.to_string()) }}),
+        Err(err) => DecodeResult::Error(DecodeError {
+            details: ErrorDetails {
+                message: err.to_string(),
+                source: err.source().map(|s| s.to_string()),
+            },
+        }),
     };
 
     pgrx::JsonB(serde_json::to_value(result).unwrap())

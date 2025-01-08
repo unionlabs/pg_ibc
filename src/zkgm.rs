@@ -1,6 +1,6 @@
 use alloy_primitives::Uint;
-use anyhow::{Context, Result};
 use alloy_sol_types::{sol, SolType};
+use anyhow::{Context, Result};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -17,7 +17,7 @@ sol! {
         uint256 path;
         SyscallPacket syscall;
     }
-    
+
     struct SyscallPacket {
         uint8 version;
         uint8 index;
@@ -30,7 +30,7 @@ sol! {
         uint64 timeoutTimestamp;
         SyscallPacket syscallPacket;
     }
-    
+
     #[derive(Serialize)]
     struct MultiplexPacket {
         bytes sender;
@@ -38,11 +38,11 @@ sol! {
         bytes contractAddress;
         bytes contractCalldata;
     }
-    
+
     struct BatchPacket {
         SyscallPacket[] syscallPackets;
     }
-    
+
     #[derive(Serialize)]
     struct FungibleAssetTransferPacket {
         bytes sender;
@@ -55,7 +55,7 @@ sol! {
         bytes askToken;
         uint256 askAmount;
         bool onlyMaker;
-    }    
+    }
 }
 
 #[derive(Serialize)]
@@ -67,12 +67,15 @@ struct ParsedZkgmPacket {
 
 impl TryFrom<ZkgmPacket> for ParsedZkgmPacket {
     type Error = anyhow::Error;
-    
+
     fn try_from(value: ZkgmPacket) -> std::result::Result<Self, Self::Error> {
-        Ok(Self { 
-            salt: value.salt, 
-            path: value.path, 
-            syscall: value.syscall.try_into().context("decoding ZkgmPacket.syscall")?,
+        Ok(Self {
+            salt: value.salt,
+            path: value.path,
+            syscall: value
+                .syscall
+                .try_into()
+                .context("decoding ZkgmPacket.syscall")?,
         })
     }
 }
@@ -86,12 +89,13 @@ struct ParsedSyscall {
 
 impl TryFrom<SyscallPacket> for ParsedSyscall {
     type Error = anyhow::Error;
-    
+
     fn try_from(value: SyscallPacket) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
             version: value.version,
             index: value.index,
-            packet: decode_packet(value.version, value.index, value.packet).context("decoding SyscallPacket.packet")?,
+            packet: decode_packet(value.version, value.index, value.packet)
+                .context("decoding SyscallPacket.packet")?,
         })
     }
 }
@@ -106,13 +110,18 @@ struct ParsedForwardPacket {
 
 impl TryFrom<ForwardPacket> for ParsedForwardPacket {
     type Error = anyhow::Error;
-    
+
     fn try_from(value: ForwardPacket) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
             channel_id: value.channelId,
             timeout_height: value.timeoutHeight,
             timeout_timestamp: value.timeoutTimestamp,
-            syscall_packet: Box::new(value.syscallPacket.try_into().context("parsing ForwardPacket.syscall_packet")?),
+            syscall_packet: Box::new(
+                value
+                    .syscallPacket
+                    .try_into()
+                    .context("parsing ForwardPacket.syscall_packet")?,
+            ),
         })
     }
 }
@@ -124,24 +133,50 @@ struct ParsedBatchPacket {
 
 impl TryFrom<BatchPacket> for ParsedBatchPacket {
     type Error = anyhow::Error;
-    
+
     fn try_from(value: BatchPacket) -> std::result::Result<Self, Self::Error> {
         Ok(Self {
-            syscall_packets: value.syscallPackets
+            syscall_packets: value
+                .syscallPackets
                 .into_iter()
                 .enumerate()
-                .map(|(index, syscall_packet)|syscall_packet.clone().try_into().context(format!("parsing BatchPacket.syscall_packet[{index}]")))
+                .map(|(index, syscall_packet)| {
+                    syscall_packet
+                        .clone()
+                        .try_into()
+                        .context(format!("parsing BatchPacket.syscall_packet[{index}]"))
+                })
                 .collect::<Result<_>>()?,
         })
     }
 }
 
-fn decode_packet(version: u8, index: u8, packet: alloy_sol_types::private::Bytes) -> Result<ParsedSyscallPacket> {
+fn decode_packet(
+    version: u8,
+    index: u8,
+    packet: alloy_sol_types::private::Bytes,
+) -> Result<ParsedSyscallPacket> {
     Ok(match (version, index) {
-        (0, SYSCALL_FORWARD) => ParsedSyscallPacket::ForwardPacket(<ForwardPacket>::abi_decode_sequence(&packet, false).context("decoding ForwardPacket")?.try_into().context("parsing ForwardPacket")?),
-        (0, SYSCALL_MULTIPLEX) => ParsedSyscallPacket::MultiplexPacket(<MultiplexPacket>::abi_decode_sequence(&packet, false).context("decoding ForwardPacket")?),
-        (0, SYSCALL_BATCH) => ParsedSyscallPacket::BatchPacket(<BatchPacket>::abi_decode_sequence(&packet, false).context("decoding BatchPacket")?.try_into().context("parsing BatchPacket")?),
-        (0, SYSCALL_FUNGIBLE_ASSET_TRANSFER) => ParsedSyscallPacket::FungibleAssetTransferPacket(<FungibleAssetTransferPacket>::abi_decode_sequence(&packet, false).context("decoding FungibleAssetTransferPacket")?),
+        (0, SYSCALL_FORWARD) => ParsedSyscallPacket::ForwardPacket(
+            <ForwardPacket>::abi_decode_sequence(&packet, false)
+                .context("decoding ForwardPacket")?
+                .try_into()
+                .context("parsing ForwardPacket")?,
+        ),
+        (0, SYSCALL_MULTIPLEX) => ParsedSyscallPacket::MultiplexPacket(
+            <MultiplexPacket>::abi_decode_sequence(&packet, false)
+                .context("decoding ForwardPacket")?,
+        ),
+        (0, SYSCALL_BATCH) => ParsedSyscallPacket::BatchPacket(
+            <BatchPacket>::abi_decode_sequence(&packet, false)
+                .context("decoding BatchPacket")?
+                .try_into()
+                .context("parsing BatchPacket")?,
+        ),
+        (0, SYSCALL_FUNGIBLE_ASSET_TRANSFER) => ParsedSyscallPacket::FungibleAssetTransferPacket(
+            <FungibleAssetTransferPacket>::abi_decode_sequence(&packet, false)
+                .context("decoding FungibleAssetTransferPacket")?,
+        ),
         _ => ParsedSyscallPacket::Unsupported(packet),
     })
 }
@@ -157,7 +192,8 @@ enum ParsedSyscallPacket {
 }
 
 pub fn parse_ucs03_zkgm_0(input: &[u8]) -> Result<Value> {
-    let zkgm_packet = <ZkgmPacket>::abi_decode_sequence(input, false).context("decoding zkgm packet")?;
+    let zkgm_packet =
+        <ZkgmPacket>::abi_decode_sequence(input, false).context("decoding zkgm packet")?;
 
     let parsed_zkgm_packet: ParsedZkgmPacket = zkgm_packet.try_into().context("parsing packet")?;
 
