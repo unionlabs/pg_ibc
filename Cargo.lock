@@ -2609,8 +2609,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "pg_ibc_0_0_5"
-version = "0.0.5"
+name = "pg_ibc_0_1"
+version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-sol-types",
