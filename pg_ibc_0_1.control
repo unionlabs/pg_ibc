@@ -1,4 +1,4 @@
-comment = 'pg_ibc:  Created by pgrx'
+comment = 'pg_ibc_@CARGO_VERSION@:  Created by pgrx'
 default_version = '@CARGO_VERSION@'
 relocatable = false
 superuser = true
