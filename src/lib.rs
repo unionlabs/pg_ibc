@@ -1,5 +1,12 @@
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
+use serde::Serialize;
+use serde_json::Value;
+
+
+use crate::zkgm::parse_ucs03_zkgm_0;
+
+mod zkgm;
 
 pgrx::pg_module_magic!();
 
@@ -28,9 +35,49 @@ pub fn decode_transfer_packet(
     result.unwrap_or(pgrx::JsonB(serde_json::Value::Null))
 }
 
+#[pg_extern(immutable, parallel_safe)]
+fn decode(input: &[u8], channel_version: &str) -> pgrx::JsonB {
+    #[derive(Serialize)]
+    #[serde(rename_all = "UPPERCASE")]
+    #[serde(tag = "code")]
+    enum DecodeResult {
+        Ok(DecodeOk),
+        Error(DecodeError),
+    }
+    
+    #[derive(Serialize)]
+    struct DecodeOk {
+        result: Value,
+    }
+    
+    #[derive(Serialize)]
+    struct DecodeError {
+        details: ErrorDetails,
+    }
+
+    #[derive(Serialize)]
+    struct ErrorDetails {
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+    }
+    
+    let result = match channel_version {
+        "usc03-zkgm-0" => parse_ucs03_zkgm_0(input),
+        _ => Err(anyhow::anyhow!("unsupported channel version: {}", channel_version)
+            .context("while selecting decoder")),
+    };
+
+    let result = match result {
+        Ok(result) => DecodeResult::Ok(DecodeOk { result }),
+        Err(err) => DecodeResult::Error(DecodeError { details: ErrorDetails { message: err.to_string(), source: err.source().map(|s| s.to_string()) }}),
+    };
+
+    pgrx::JsonB(serde_json::to_value(result).unwrap())
+}
+
 fn decode_from_eth_abi(input: &[u8], extension_format: &str) -> Result<pgrx::JsonB> {
     use alloy_sol_types::{sol, SolType};
-    use serde::Serialize;
 
     sol! {
         #[derive(Serialize)]
@@ -149,6 +196,33 @@ mod tests {
             "json",
         );
         assert_eq!(json.0, json!({"extension": {"foo": 1}}));
+    }
+
+    #[test]
+    fn test_decode_success() {
+        let json = decode(&hex::decode("0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014779877a7b0d9e8603169ddbd7836e478b462478900000000000000000000000000000000000000000000000000000000000000000000000000000000000000044c494e4b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f436861696e4c696e6b20546f6b656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014d1b482d1b947a96e96c9b76d15de34f7f70a20a1000000000000000000000000").unwrap(), "usc03-zkgm-0");
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(json.0, json!("zkgm"));
+    }
+
+    #[test]
+    fn test_decode_error_selecting_decoder() {
+        let json = decode(&hex::decode("0b").unwrap(), "does-not-exist");
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(json.0, json!("zkgm"));
+    }
+
+    #[test]
+    fn test_decode_error_decoding() {
+        let json = decode(&hex::decode("0b").unwrap(), "usc03-zkgm-0");
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(json.0, json!("zkgm"));
     }
 }
 
