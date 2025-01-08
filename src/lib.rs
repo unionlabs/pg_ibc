@@ -62,7 +62,7 @@ fn decode_0_1(input: &[u8], channel_version: &str) -> pgrx::JsonB {
     }
 
     let result = match channel_version {
-        "usc03-zkgm-0" => parse_ucs03_zkgm_0(input),
+        "ucs03-zkgm-0" => parse_ucs03_zkgm_0(input),
         _ => Err(
             anyhow::anyhow!("unsupported channel version: {}", channel_version)
                 .context("while selecting decoder"),
