@@ -181,7 +181,7 @@ mod tests {
         let json = decode_transfer_packet_0_1(&data, "evm", true, "json");
         assert_eq!(
             json.0,
-            json!({"extension": {"forward":{"receiver":"27156Eb671984304ae75Da49aD60C4479B490A06","port":"wasm.union1m37cxl0ld4uaw3r4lv9nt2uw69xxf8xfjrf7a4w9hamv6xvp6ddqqfaaaa","channel":"channel-71","timeout":"0","retries": 0 }},"receiver":"0x01","sender":"0x27156eb671984304ae75da49ad60c4479b490a06","tokens":[{"amount":100,"denom":"0x0e4aaf1351de4c0264c5c7056ef3777b41bd8e03"}]})
+            json!({"extension": {"forward":{"receiver":"27156Eb671984304ae75Da49aD60C4479B490A06","port":"wasm.union1m37cxl0ld4uaw3r4lv9nt2uw69xxf8xfjrf7a4w9hamv6xvp6ddqqfaaaa","channel":"channel-71","timeout":"0","retries": 0 }},"receiver":"0x01","sender":"0x27156eb671984304ae75da49ad60c4479b490a06","tokens":[{"amount":100,"denom":"0x0e4aaf1351de4c0264c5c7056ef3777b41bd8e03","fee":42}]})
         )
     }
 
@@ -210,7 +210,29 @@ mod tests {
 
         dbg!(serde_json::to_string(&json.0).unwrap());
 
-        assert_eq!(json.0, json!("zkgm"));
+        assert_eq!(json.0, json!({
+            "code": "OK",
+            "result": {
+              "instruction": {
+                "opcode": 3,
+                "operand": {
+                  "_type": "FungibleAssetOrder",
+                  "baseAmount": "0x0",
+                  "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
+                  "baseTokenName": "ChainLink Token",
+                  "baseTokenPath": "0x0",
+                  "baseTokenSymbol": "LINK",
+                  "quoteAmount": "0x0",
+                  "quoteToken": "0xd1b482d1b947a96e96c9b76d15de34f7f70a20a1",
+                  "receiver": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa",
+                  "sender": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa"
+                },
+                "version": 0
+              },
+              "path": "0x0",
+              "salt": "0x0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc"
+            }
+          }));
     }
 
     #[test]
@@ -219,7 +241,13 @@ mod tests {
 
         dbg!(serde_json::to_string(&json.0).unwrap());
 
-        assert_eq!(json.0, json!("zkgm"));
+        assert_eq!(json.0, json!({
+            "code": "ERROR",
+            "details": {
+              "message": "while selecting decoder",
+              "source": "unsupported channel version: does-not-exist"
+            }
+          }));
     }
 
     #[test]
@@ -228,7 +256,13 @@ mod tests {
 
         dbg!(serde_json::to_string(&json.0).unwrap());
 
-        assert_eq!(json.0, json!("zkgm"));
+        assert_eq!(json.0, json!({
+            "code": "ERROR",
+            "details": {
+              "message": "decoding zkgm packet",
+              "source": "buffer overrun while deserializing"
+            }
+          }));
     }
 }
 
