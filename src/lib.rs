@@ -1,6 +1,7 @@
+use alloy_primitives::{bytes, FixedBytes};
 use anyhow::{bail, Result};
 use pgrx::prelude::*;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use serde_json::Value;
 
 mod ucs03_zkgm_0;
@@ -115,7 +116,9 @@ fn decode_from_eth_abi(input: &[u8], extension_format: &str) -> Result<pgrx::Jso
 
         #[derive(Serialize)]
         struct RelayPacketV1 {
+            #[serde(serialize_with = "hex_0x")]
             bytes sender;
+            #[serde(serialize_with = "hex_0x")]
             bytes receiver;
             TokenV1[] tokens;
             string extension;
@@ -130,7 +133,9 @@ fn decode_from_eth_abi(input: &[u8], extension_format: &str) -> Result<pgrx::Jso
 
         #[derive(Serialize)]
         struct RelayPacketV2 {
+            #[serde(serialize_with = "hex_0x")]
             bytes sender;
+            #[serde(serialize_with = "hex_0x")]
             bytes receiver;
             TokenV2[] tokens;
             string extension;
@@ -187,6 +192,22 @@ fn decode_from_proto(input: &[u8], extension_format: &str) -> Result<pgrx::JsonB
         }
     }
     Ok(pgrx::JsonB(value))
+}
+
+fn hex_0x<S>(bytes: &bytes::Bytes, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let hex_string = format!("0x{}", hex::encode(bytes));
+    serializer.serialize_str(&hex_string)
+}
+
+fn bytes32_to_hex_0x<S>(bytes: &FixedBytes<32>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let hex_string = format!("0x{}", hex::encode(bytes));
+    serializer.serialize_str(&hex_string)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

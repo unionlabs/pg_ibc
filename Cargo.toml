@@ -6,25 +6,31 @@ edition = "2021"
 [lib]
 crate-type = ["lib", "cdylib"]
 
+[[bin]]
+name = "pgrx_embed_pg_ibc_0_1"
+path = "./src/pgrx_embed.rs"
+
 [features]
 default = ["pg14"]
 pg14 = ["pgrx/pg14", "pgrx-tests/pg14" ]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15" ]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16" ]
+pg17 = ["pgrx/pg16", "pgrx-tests/pg17" ]
 pg_test = []
 
 [dependencies]
-pgrx = "=0.11.3"
+pgrx = "=0.12.6"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.114"
 ethers = "2.0.13"
-alloy-primitives = { version = "0.7.6", features = ["serde"] }
-alloy-sol-types = "0.7.6"
+alloy-primitives = { version = "0.8.18", features = ["serde"] }
+alloy-sol-types = "0.8.18"
 anyhow = "1.0.86"
 hex = "0.4.3"
+create3 = { git = "https://github.com/unionlabs/union.git", rev = "886643e65d49b8f2c7e2c1da814217c3f22aee8b" }
 
 [dev-dependencies]
-pgrx-tests = "=0.11.3"
+pgrx-tests = "=0.12.6"
 criterion = "0.3"
 base64 = "0.22.1"
 

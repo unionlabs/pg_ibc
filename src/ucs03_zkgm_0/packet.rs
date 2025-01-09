@@ -3,6 +3,8 @@ use anyhow::{Context, Result};
 use serde::ser::Error as SerdeError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::Value;
+use crate::hex_0x;
+use crate::bytes32_to_hex_0x;
 
 // source: github:unionlabs/union/evm/contracts/apps/ucs/03-zkgm/Zkgm.sol
 const OP_FORWARD: u8 = 0x00;
@@ -13,6 +15,7 @@ const OP_FUNGIBLE_ASSET_TRANSFER: u8 = 0x03;
 sol! {
     #[derive(Serialize)]
     struct ZkgmPacket {
+        #[serde(serialize_with = "bytes32_to_hex_0x")]
         bytes32 salt;
         uint256 path;
         Instruction instruction;
@@ -34,9 +37,12 @@ sol! {
 
     #[derive(Serialize)]
     struct Multiplex {
+        #[serde(serialize_with = "hex_0x")]
         bytes sender;
         bool eureka;
+        #[serde(serialize_with = "hex_0x")]
         bytes contractAddress;
+        #[serde(serialize_with = "hex_0x")]
         bytes contractCalldata;
     }
 
@@ -47,13 +53,17 @@ sol! {
 
     #[derive(Serialize)]
     struct FungibleAssetOrder {
+        #[serde(serialize_with = "hex_0x")]
         bytes sender;
+        #[serde(serialize_with = "hex_0x")]
         bytes receiver;
+        #[serde(serialize_with = "hex_0x")]
         bytes baseToken;
         uint256 baseAmount;
         string baseTokenSymbol;
         string baseTokenName;
         uint256 baseTokenPath;
+        #[serde(serialize_with = "hex_0x")]
         bytes quoteToken;
         uint256 quoteAmount;
     }
@@ -111,6 +121,7 @@ pub enum Operand {
     Batch(Batch),
     FungibleAssetOrder(FungibleAssetOrder),
     Unsupported {
+        #[serde(serialize_with = "hex_0x")]
         data: alloy_sol_types::private::Bytes,
     },
 }

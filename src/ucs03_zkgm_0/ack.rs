@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use serde::ser::Error as SerdeError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::Value;
+use crate::hex_0x;
 
 use crate::ucs03_zkgm_0::packet::{Instruction, Operand, ZkgmPacket};
 
@@ -19,6 +20,7 @@ sol! {
     #[derive(Serialize)]
     struct FungibleAssetOrderAck {
         uint256 fillType;
+        #[serde(serialize_with = "hex_0x")]
         bytes marketMaker;
     }
 }
@@ -119,10 +121,16 @@ fn decode_ack(operand: &Operand, ack: &Bytes) -> Result<InnerAck> {
 #[serde(tag = "_type")]
 enum InnerAck {
     Forward(InstructionPacketAck),
-    Multiplex { data: Bytes },
+    Multiplex { 
+        #[serde(serialize_with = "hex_0x")]
+        data: Bytes 
+    },
     Batch(BatchPacketAck),
     FungibleAssetOrder(FungibleAssetOrderAck),
-    Unsupported { data: Bytes },
+    Unsupported { 
+        #[serde(serialize_with = "hex_0x")]
+        data: Bytes 
+    },
 }
 
 pub fn decode(packet: &[u8], ack: &[u8]) -> Result<Value> {

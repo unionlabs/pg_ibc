@@ -12,9 +12,9 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
-
+    union.url = "github:unionlabs/union?rev=886643e65d49b8f2c7e2c1da814217c3f22aee8b";
   };
-  outputs = inputs@{ self, nixpkgs, crane, flake-parts, rust-overlay, ... }:
+  outputs = inputs@{ self, nixpkgs, crane, flake-parts, rust-overlay, union, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         inputs.treefmt-nix.flakeModule
@@ -26,6 +26,9 @@
             src = ./.;
             cargoLock = {
               lockFile = ./Cargo.lock;
+              outputHashes = {
+                "create3-0.1.0" = "sha256-bNidM1F7uV/CMKGuBPvbn3Xe4oKkqEX+kZh7oomnwsA=";
+             };
             };
             name = "pg_ibc";
             doCheck = false;
@@ -41,7 +44,7 @@
             overlays = [ (import rust-overlay) ];
           };
 
-          rust = pkgs.rust-bin.stable."1.76.0".default.override {
+          rust = pkgs.rust-bin.stable."1.81.0".default.override {
             extensions = [ "rust-src" ];
           };
 
@@ -64,16 +67,19 @@
           devShells.default = craneLib.devShell {
             checks = self.checks.${system};
             inputsFrom = with pkgs; [
-              postgresql_12
               postgresql_13
               postgresql_14
               postgresql_15
               postgresql_16
+              postgresql_17
             ];
             packages = with pkgs; [
               cargo-pgrx
               postgresql
               libiconv
+              bison
+              flex
+              perl
               pkg-config
             ];
             # PGRX_HOME needs an absolute path for `cargo pgrx init` to work, but must be empty when running `nix build`
