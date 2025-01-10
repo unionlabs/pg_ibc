@@ -1,4 +1,6 @@
 comment = 'pg_ibc_@CARGO_VERSION@:  Created by pgrx'
 default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/pg_ibc_0_2'
 relocatable = false
 superuser = true
+trusted = false
