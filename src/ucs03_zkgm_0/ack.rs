@@ -1,9 +1,9 @@
+use crate::hex_0x;
 use alloy_sol_types::{private::Bytes, sol, SolType};
 use anyhow::{Context, Result};
 use serde::ser::Error as SerdeError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::Value;
-use crate::hex_0x;
 
 use crate::ucs03_zkgm_0::packet::{Instruction, Operand, ZkgmPacket};
 
@@ -121,15 +121,15 @@ fn decode_ack(operand: &Operand, ack: &Bytes) -> Result<InnerAck> {
 #[serde(tag = "_type")]
 enum InnerAck {
     Forward(InstructionPacketAck),
-    Multiplex { 
+    Multiplex {
         #[serde(serialize_with = "hex_0x")]
-        data: Bytes 
+        data: Bytes,
     },
     Batch(BatchPacketAck),
     FungibleAssetOrder(FungibleAssetOrderAck),
-    Unsupported { 
+    Unsupported {
         #[serde(serialize_with = "hex_0x")]
-        data: Bytes 
+        data: Bytes,
     },
 }
 
