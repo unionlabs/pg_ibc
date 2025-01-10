@@ -36,6 +36,7 @@
              };
             };
             doCheck = false;
+            name = "pg_ibc_0_2";
           });
         };
       };
