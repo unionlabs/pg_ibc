@@ -1,5 +1,5 @@
 [package]
-name = "pg_ibc_0_1"
+name = "pg_ibc_0_2"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["lib", "cdylib"]
 
 [[bin]]
-name = "pgrx_embed_pg_ibc_0_1"
+name = "pgrx_embed_pg_ibc_0_2"
 path = "./src/pgrx_embed.rs"
 
 [features]

@@ -3211,7 +3211,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pg_ibc_0_1"
+name = "pg_ibc_0_2"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
