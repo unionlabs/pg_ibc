@@ -34,6 +34,9 @@ pgrx-tests = "=0.12.6"
 criterion = "0.3"
 base64 = "0.22.1"
 
+[build-dependencies]
+cargo-pgrx = "=0.12.6"
+
 [profile.dev]
 panic = "unwind"
 
