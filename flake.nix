@@ -83,8 +83,8 @@
               pkg-config
             ];
             # PGRX_HOME needs an absolute path for `cargo pgrx init` to work, but must be empty when running `nix build`
-            # PGRX_HOME="";
-            PGRX_HOME="/home/jurriaan/.pgrx";
+            PGRX_HOME="";
+            # PGRX_HOME="/home/jurriaan/.pgrx";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             PGRX_PG_SYS_SKIP_BINDING_REWRITE = "1";
             BINDGEN_EXTRA_CLANG_ARGS = [
