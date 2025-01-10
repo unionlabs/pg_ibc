@@ -13,15 +13,20 @@
     };
     treefmt-nix.url = "github:numtide/treefmt-nix";
     union.url = "github:unionlabs/union?rev=886643e65d49b8f2c7e2c1da814217c3f22aee8b";
+
+    # shopify has a fix to select a cargo-pgrs version, which is required because it must match the one we use
+    nixpkgs-pgrx.url = "github:Shopify/nixpkgs";
   };
-  outputs = inputs@{ self, nixpkgs, crane, flake-parts, rust-overlay, union, ... }:
+  outputs = inputs@{ self, nixpkgs, crane, flake-parts, rust-overlay, union, nixpkgs-pgrx, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
       imports = [
         inputs.treefmt-nix.flakeModule
       ];
       flake = {
         lib = {
-          buildPgIbcExtension = pkgs: postgresql: (pkgs.buildPgrxExtension {
+          buildPgIbcExtension = pkgs-pgrx: postgresql: (pkgs-pgrx.buildPgrxExtension.override {
+            cargo-pgrx = pkgs-pgrx.cargo-pgrx_0_12_6;
+          } {
             inherit postgresql;
             src = ./.;
             cargoLock = {
@@ -44,6 +49,11 @@
             overlays = [ (import rust-overlay) ];
           };
 
+          pkgs-pgrx = import nixpkgs-pgrx {
+            inherit system;
+            overlays = [ (import rust-overlay) ];
+          };
+
           rust = pkgs.rust-bin.stable."1.81.0".default.override {
             extensions = [ "rust-src" ];
           };
@@ -53,9 +63,9 @@
         {
           packages = rec {
             default = pg_pfm_16;
-            pg_pfm_14 = self.lib.buildPgIbcExtension pkgs pkgs.postgresql_14;
-            pg_pfm_15 = self.lib.buildPgIbcExtension pkgs pkgs.postgresql_15;
-            pg_pfm_16 = self.lib.buildPgIbcExtension pkgs pkgs.postgresql_16;
+            pg_pfm_14 = self.lib.buildPgIbcExtension pkgs-pgrx pkgs.postgresql_14;
+            pg_pfm_15 = self.lib.buildPgIbcExtension pkgs-pgrx pkgs.postgresql_15;
+            pg_pfm_16 = self.lib.buildPgIbcExtension pkgs-pgrx pkgs.postgresql_16;
           };
           treefmt.config = {
             projectRootFile = "flake.nix";

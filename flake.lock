@@ -542,6 +542,21 @@
         "type": "github"
       }
     },
+    "nixpkgs-pgrx": {
+      "locked": {
+        "lastModified": 1732181586,
+        "narHash": "sha256-+F/t40jiN3Mwe5M2kUrUXoqBDZn477N/mfV8SR/2u0I=",
+        "owner": "Shopify",
+        "repo": "nixpkgs",
+        "rev": "9777a72dd3ff6f774351c264723862a13c2480ea",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Shopify",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "nixpkgs-solc": {
       "locked": {
         "lastModified": 1707268954,
@@ -696,6 +711,7 @@
         "crane": "crane",
         "flake-parts": "flake-parts",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-pgrx": "nixpkgs-pgrx",
         "rust-overlay": "rust-overlay",
         "treefmt-nix": "treefmt-nix",
         "union": "union"
