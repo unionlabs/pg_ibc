@@ -15,7 +15,7 @@
     union.url = "github:unionlabs/union?rev=886643e65d49b8f2c7e2c1da814217c3f22aee8b";
 
     # shopify has a fix to select a cargo-pgrs version, which is required because it must match the one we use
-    nixpkgs-pgrx.url = "github:supabase/nixpkgs";
+    nixpkgs-pgrx.url = "github:Shopify/nixpkgs";
   };
   outputs = inputs@{ self, nixpkgs, crane, flake-parts, rust-overlay, union, nixpkgs-pgrx, ... }:
     flake-parts.lib.mkFlake { inherit inputs; } {
