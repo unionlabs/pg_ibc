@@ -35,7 +35,6 @@
                 "create3-0.1.0" = "sha256-bNidM1F7uV/CMKGuBPvbn3Xe4oKkqEX+kZh7oomnwsA=";
              };
             };
-            name = "pg_ibc_0_2";
             doCheck = false;
           });
         };
@@ -93,8 +92,8 @@
               pkg-config
             ];
             # PGRX_HOME needs an absolute path for `cargo pgrx init` to work, but must be empty when running `nix build`
-            PGRX_HOME="";
-            # PGRX_HOME="/home/jurriaan/.pgrx";
+            # PGRX_HOME="";
+            PGRX_HOME="/home/jurriaan/.pgrx";
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
             PGRX_PG_SYS_SKIP_BINDING_REWRITE = "1";
             BINDGEN_EXTRA_CLANG_ARGS = [
