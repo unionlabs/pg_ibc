@@ -35,7 +35,7 @@
                 "create3-0.1.0" = "sha256-bNidM1F7uV/CMKGuBPvbn3Xe4oKkqEX+kZh7oomnwsA=";
              };
             };
-            name = "pg_ibc";
+            name = "pg_ibc_0_2";
             doCheck = false;
           });
         };
