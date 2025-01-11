@@ -4,6 +4,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 mod ucs03_zkgm_0;
+mod create3;
 
 pgrx::pg_module_magic!();
 
