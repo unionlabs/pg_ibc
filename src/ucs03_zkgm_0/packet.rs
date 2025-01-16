@@ -120,9 +120,37 @@ pub fn decode(input: &[u8]) -> Result<Value> {
     let zkgm_packet =
         <ZkgmPacket>::abi_decode_sequence(input, false).context("decoding zkgm packet")?;
 
-    let value = serde_json::to_value(&zkgm_packet).context("formatting json")?;
+    let mut value = serde_json::to_value(&zkgm_packet).context("formatting json")?;
+
+    add_path(&mut value, vec![]);
 
     Ok(value)
+}
+
+pub fn add_path(json: &mut Value, path: Vec<String>) {
+    match json {
+        // If it's an object, check for "_type" and process its fields
+        Value::Object(map) => {
+            if map.contains_key("_type") && !path.is_empty() {
+                map.insert("_index".to_string(), Value::String(path.join(".")));
+            }
+
+            for (key, value) in map.iter_mut() {
+                if key != "_path" { // Avoid overwriting existing "_parents"
+                    add_path(value, path.clone());
+                }
+            }
+        }
+        // If it's an array, recurse into each element and add index to the path
+        Value::Array(arr) => {
+            for (index, value) in arr.iter_mut().enumerate() {
+                let mut new_path = path.clone();
+                new_path.push(index.to_string());
+                add_path(value, new_path);
+            }
+        }
+        _ => {} // Do nothing for primitive types
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -185,6 +213,7 @@ mod tests {
                       {
                         "opcode": 3,
                         "operand": {
+                          "_index": "0",
                           "_type": "FungibleAssetOrder",
                           "baseAmount": "0x1",
                           "baseToken": "0xdc7af843e4eb079cd77ace6774bd71d6b8122f07",
@@ -201,6 +230,7 @@ mod tests {
                       {
                         "opcode": 1,
                         "operand": {
+                          "_index": "1",
                           "_type": "Multiplex",
                           "contractAddress": "0x271126f4f9b36ce16d9e2ef75691485ddce11db6",
                           "contractCalldata": "0xcafebabe",
