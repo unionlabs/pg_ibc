@@ -5,11 +5,19 @@ use pgrx::pg_extern;
 mod copy;
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn create3_0_1(intermediate_channel_ids: &[u8], receiver_channel_id: i64, original_token: &[u8], deployer: &[u8]) -> 
-    Vec<u8> {
+pub fn create3_0_1(
+    intermediate_channel_ids: &[u8],
+    receiver_channel_id: i64,
+    original_token: &[u8],
+    deployer: &[u8],
+) -> Vec<u8> {
     let intermediate_channel_ids: U256 = U256::try_from_be_slice(intermediate_channel_ids)
         .expect("cannot convert intermediate_channel_ids to U256"); // handled by pgrx.
-    let params = (intermediate_channel_ids, receiver_channel_id, original_token);
+    let params = (
+        intermediate_channel_ids,
+        receiver_channel_id,
+        original_token,
+    );
     let encoded = params.abi_encode_params();
     let salt = keccak256(encoded);
 
@@ -33,7 +41,6 @@ mod tests {
         assert_eq!(unwrapped_token, expected);
     }
 
-
     #[test]
     fn test_u256_conversion() {
         assert_decode_encode_equals("0x0");
@@ -47,7 +54,7 @@ mod tests {
         let hex = &hex_0x[2..];
         let hex_even_nibbles = match hex.len() % 2 == 0 {
             true => hex.to_string(),
-            false => format!("0{}", hex) 
+            false => format!("0{}", hex),
         };
         let u8_vec = hex::decode(hex_even_nibbles).unwrap();
         let u8_array = u8_vec.as_slice();
