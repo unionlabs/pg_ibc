@@ -51,7 +51,6 @@ enum DecodeResultOk {
     NoDecoder(NoDecodeOk),
 }
 
-
 #[derive(Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[serde(tag = "phase")]
@@ -98,7 +97,7 @@ fn decode_ack_0_1(packet: &[u8], ack: &[u8], channel_version: &str) -> pgrx::Jso
         Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk {
             result,
             packet_hash: PacketHash([0; 32]),
-        }) ),
+        })),
         Err(err) => DecodeResult::Error(DecodeResultError::Decoding(DecodingError {
             details: ErrorDetails {
                 message: err.to_string(),
@@ -158,16 +157,21 @@ fn decode_packet_ack_0_1(
         timeout_timestamp,
     ) {
         Ok((packet, packet_hash)) => match &channel_version {
-            Some("ucs03-zkgm-0") => match ucs03_zkgm_0::packet_ack::decode(&packet, ack, &packet_hash, mode) {
-                Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk { result, packet_hash })),
-                Err(error) => DecodeResult::Error(DecodeResultError::Decoding(DecodingError {
-                    packet_hash,
-                    details: ErrorDetails {
-                        message: error.to_string(),
-                        source: error.source().map(|s| s.to_string()),
-                    },
-                }))
-            },
+            Some("ucs03-zkgm-0") => {
+                match ucs03_zkgm_0::packet_ack::decode(&packet, ack, &packet_hash, mode) {
+                    Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk {
+                        result,
+                        packet_hash,
+                    })),
+                    Err(error) => DecodeResult::Error(DecodeResultError::Decoding(DecodingError {
+                        packet_hash,
+                        details: ErrorDetails {
+                            message: error.to_string(),
+                            source: error.source().map(|s| s.to_string()),
+                        },
+                    })),
+                }
+            }
             _ => DecodeResult::Ok(DecodeResultOk::NoDecoder(NoDecodeOk { packet_hash })),
         },
         Err(error) => DecodeResult::Error(DecodeResultError::Hashing(ErrorDetails {
@@ -545,14 +549,14 @@ mod tests {
               "packet_hash": "0xebf016a1ecb0c90eb3274f5881089defd65f7f78ea009271d43d0fbbdd25a8e0",
               "result": {
                 "instruction": {
+                  "_ack": {
+                    "fillType": "0xb0cad0",
+                    "marketMaker": "0x"
+                  },
+                  "_index": "",
+                  "_instruction_hash": "0x8326770d0281813f82e00b6888e829e3d383202fcb1f30ec68ad867ba0f08f0e",
                   "opcode": 3,
                   "operand": {
-                    "_ack": {
-                      "fillType": "0xb0cad0",
-                      "marketMaker": "0x"
-                    },
-                    "_index": "",
-                    "_instruction_hash": "0x8326770d0281813f82e00b6888e829e3d383202fcb1f30ec68ad867ba0f08f0e",
                     "_type": "FungibleAssetOrder",
                     "baseAmount": "0x0",
                     "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
@@ -591,9 +595,9 @@ mod tests {
         assert_eq!(
             json.0,
             json!({
-                "code": "OK",
-                "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
-              })
+              "code": "OK",
+              "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
+            })
         );
     }
 

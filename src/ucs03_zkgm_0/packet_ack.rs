@@ -252,16 +252,18 @@ fn add_path_and_hash(
                 add_path_and_hash(value, ack_value_by_path, packet_hash, path)?;
             }
 
-            if let Some(Value::String(packet_type)) = &map.get("_type") {
-                if let Some(ack) = get_ack_for_path(ack_value_by_path, path, packet_type)? {
-                    map.insert("_ack".to_string(), ack);
-                }
+            if let Some(Value::Object(operand)) = map.get("operand") {
+                if let Some(Value::String(packet_type)) = operand.get("_type") {
+                    if let Some(ack) = get_ack_for_path(ack_value_by_path, path, packet_type)? {
+                        map.insert("_ack".to_string(), ack);
+                    }
 
-                map.insert("_index".to_string(), Value::String(to_path_string(path)));
-                map.insert(
-                    "_instruction_hash".to_string(),
-                    Value::String(packet_hash.hash_with_path(path).to_0x_hex()),
-                );
+                    map.insert("_index".to_string(), Value::String(to_path_string(path)));
+                    map.insert(
+                        "_instruction_hash".to_string(),
+                        Value::String(packet_hash.hash_with_path(path).to_0x_hex()),
+                    );
+                }
             }
         }
         // If it's an array, recurse into each element and add index to the path
@@ -292,9 +294,11 @@ pub fn flatten_json_tree(json: &Value) -> Value {
 fn flatten_json_tree_recursive(json: &Value, result: &mut Vec<Value>) {
     match json {
         Value::Object(map) => {
-            if map.contains_key("_type") {
-                // Add the current object to the result
-                result.push(json.clone());
+            if let Some(Value::Object(operand)) = map.get("operand") {
+                if operand.contains_key("_type") {
+                    // Add the current object to the result
+                    result.push(json.clone());
+                }
             }
 
             for value in map.iter().filter_map(|(key, value)| match key.as_str() {
@@ -336,10 +340,10 @@ mod tests {
             json,
             json!({
               "instruction": {
+                "_index": "",
+                "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
                 "opcode": 3,
                 "operand": {
-                  "_index": "",
-                  "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
                   "_type": "FungibleAssetOrder",
                   "baseAmount": "0x0",
                   "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
@@ -396,36 +400,36 @@ mod tests {
             json,
             json!({
               "instruction": {
+                "_ack": {
+                  "acknowledgements": [
+                    {
+                      "_index": "0",
+                      "_type": "FungibleAssetOrder",
+                      "fillType": "0xb0cad0",
+                      "marketMaker": "0x"
+                    },
+                    {
+                      "_index": "1",
+                      "_type": "Multiplex",
+                      "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                    }
+                  ]
+                },
+                "_index": "",
+                "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
                 "opcode": 2,
                 "operand": {
-                  "_ack": {
-                    "acknowledgements": [
-                      {
-                        "_index": "0",
-                        "_type": "FungibleAssetOrder",
-                        "fillType": "0xb0cad0",
-                        "marketMaker": "0x"
-                      },
-                      {
-                        "_index": "1",
-                        "_type": "Multiplex",
-                        "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                      }
-                    ]
-                  },
-                  "_index": "",
-                  "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
                   "_type": "Batch",
                   "instructions": [
                     {
+                      "_ack": {
+                        "fillType": "0xb0cad0",
+                        "marketMaker": "0x"
+                      },
+                      "_index": "0",
+                      "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
                       "opcode": 3,
                       "operand": {
-                        "_ack": {
-                          "fillType": "0xb0cad0",
-                          "marketMaker": "0x"
-                        },
-                        "_index": "0",
-                        "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
                         "_type": "FungibleAssetOrder",
                         "baseAmount": "0x1",
                         "baseToken": "0xdc7af843e4eb079cd77ace6774bd71d6b8122f07",
@@ -440,13 +444,13 @@ mod tests {
                       "version": 0
                     },
                     {
+                      "_ack": {
+                        "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
+                      },
+                      "_index": "1",
+                      "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
                       "opcode": 1,
                       "operand": {
-                        "_ack": {
-                          "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
-                        },
-                        "_index": "1",
-                        "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
                         "_type": "Multiplex",
                         "contractAddress": "0x271126f4f9b36ce16d9e2ef75691485ddce11db6",
                         "contractCalldata": "0xcafebabe",
@@ -483,17 +487,17 @@ mod tests {
             json,
             json!({
               "instruction": {
+                "_index": "",
+                "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
                 "opcode": 2,
                 "operand": {
-                  "_index": "",
-                  "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
                   "_type": "Batch",
                   "instructions": [
                     {
+                      "_index": "0",
+                      "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
                       "opcode": 3,
                       "operand": {
-                        "_index": "0",
-                        "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
                         "_type": "FungibleAssetOrder",
                         "baseAmount": "0x1",
                         "baseToken": "0xdc7af843e4eb079cd77ace6774bd71d6b8122f07",
@@ -508,10 +512,10 @@ mod tests {
                       "version": 0
                     },
                     {
+                      "_index": "1",
+                      "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
                       "opcode": 1,
                       "operand": {
-                        "_index": "1",
-                        "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
                         "_type": "Multiplex",
                         "contractAddress": "0x271126f4f9b36ce16d9e2ef75691485ddce11db6",
                         "contractCalldata": "0xcafebabe",
@@ -567,47 +571,51 @@ mod tests {
                 },
                 "_index": "",
                 "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
-                "_type": "Batch",
-                "instructions": [
-                  {
-                    "opcode": 3,
-                    "operand": {
+                "opcode": 2,
+                "operand": {
+                  "_type": "Batch",
+                  "instructions": [
+                    {
                       "_ack": {
                         "fillType": "0xb0cad0",
                         "marketMaker": "0x"
                       },
                       "_index": "0",
                       "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
-                      "_type": "FungibleAssetOrder",
-                      "baseAmount": "0x1",
-                      "baseToken": "0xdc7af843e4eb079cd77ace6774bd71d6b8122f07",
-                      "baseTokenName": "",
-                      "baseTokenPath": "0x0",
-                      "baseTokenSymbol": "factory/union12qdvmw22n72mem0ysff3nlyj2c76cuy4x60lua/clown",
-                      "quoteAmount": "0x1",
-                      "quoteToken": "0x8b4bfb23f4d75feef28b4099c0114e5840d14a47",
-                      "receiver": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177",
-                      "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
+                      "opcode": 3,
+                      "operand": {
+                        "_type": "FungibleAssetOrder",
+                        "baseAmount": "0x1",
+                        "baseToken": "0xdc7af843e4eb079cd77ace6774bd71d6b8122f07",
+                        "baseTokenName": "",
+                        "baseTokenPath": "0x0",
+                        "baseTokenSymbol": "factory/union12qdvmw22n72mem0ysff3nlyj2c76cuy4x60lua/clown",
+                        "quoteAmount": "0x1",
+                        "quoteToken": "0x8b4bfb23f4d75feef28b4099c0114e5840d14a47",
+                        "receiver": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177",
+                        "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
+                      },
+                      "version": 0
                     },
-                    "version": 0
-                  },
-                  {
-                    "opcode": 1,
-                    "operand": {
+                    {
                       "_ack": {
                         "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                       },
                       "_index": "1",
                       "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
-                      "_type": "Multiplex",
-                      "contractAddress": "0x271126f4f9b36ce16d9e2ef75691485ddce11db6",
-                      "contractCalldata": "0xcafebabe",
-                      "eureka": true,
-                      "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
-                    },
-                    "version": 0
-                  }
-                ]
+                      "opcode": 1,
+                      "operand": {
+                        "_type": "Multiplex",
+                        "contractAddress": "0x271126f4f9b36ce16d9e2ef75691485ddce11db6",
+                        "contractCalldata": "0xcafebabe",
+                        "eureka": true,
+                        "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
+                      },
+                      "version": 0
+                    }
+                  ]
+                },
+                "version": 0
               },
               {
                 "_ack": {
@@ -616,16 +624,20 @@ mod tests {
                 },
                 "_index": "0",
                 "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
-                "_type": "FungibleAssetOrder",
-                "baseAmount": "0x1",
-                "baseToken": "0xdc7af843e4eb079cd77ace6774bd71d6b8122f07",
-                "baseTokenName": "",
-                "baseTokenPath": "0x0",
-                "baseTokenSymbol": "factory/union12qdvmw22n72mem0ysff3nlyj2c76cuy4x60lua/clown",
-                "quoteAmount": "0x1",
-                "quoteToken": "0x8b4bfb23f4d75feef28b4099c0114e5840d14a47",
-                "receiver": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177",
-                "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
+                "opcode": 3,
+                "operand": {
+                  "_type": "FungibleAssetOrder",
+                  "baseAmount": "0x1",
+                  "baseToken": "0xdc7af843e4eb079cd77ace6774bd71d6b8122f07",
+                  "baseTokenName": "",
+                  "baseTokenPath": "0x0",
+                  "baseTokenSymbol": "factory/union12qdvmw22n72mem0ysff3nlyj2c76cuy4x60lua/clown",
+                  "quoteAmount": "0x1",
+                  "quoteToken": "0x8b4bfb23f4d75feef28b4099c0114e5840d14a47",
+                  "receiver": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177",
+                  "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
+                },
+                "version": 0
               },
               {
                 "_ack": {
@@ -633,11 +645,15 @@ mod tests {
                 },
                 "_index": "1",
                 "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
-                "_type": "Multiplex",
-                "contractAddress": "0x271126f4f9b36ce16d9e2ef75691485ddce11db6",
-                "contractCalldata": "0xcafebabe",
-                "eureka": true,
-                "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
+                "opcode": 1,
+                "operand": {
+                  "_type": "Multiplex",
+                  "contractAddress": "0x271126f4f9b36ce16d9e2ef75691485ddce11db6",
+                  "contractCalldata": "0xcafebabe",
+                  "eureka": true,
+                  "sender": "0x153919669edc8a5d0c8d1e4507c9ce60435a1177"
+                },
+                "version": 0
               }
             ])
         );
