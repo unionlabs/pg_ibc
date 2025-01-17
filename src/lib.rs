@@ -37,7 +37,7 @@ pub fn decode_transfer_packet_0_1(
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[serde(tag = "code")]
 enum DecodeResult {
     Ok(DecodeOk),
@@ -151,11 +151,11 @@ fn decode_packet_ack_0_1(
             }
         } {
             Ok(result) => DecodeResult::Ok(DecodeOk {
-                packet_hash: packet_hash.into(),
+                packet_hash,
                 result,
             }),
             Err(error) => DecodeResult::Error(DecodeError {
-                packet_hash: packet_hash.into(),
+                packet_hash,
                 details: ErrorDetails {
                     message: error.to_string(),
                     source: error.source().map(|s| s.to_string()),
@@ -172,6 +172,19 @@ fn decode_packet_ack_0_1(
 }
 
 pub struct PacketHash([u8; 32]);
+impl PacketHash {
+    fn hash_with_path(&self, path: &[u8]) -> PacketPathHash {
+        let mut hasher = Keccak256::new();
+
+        // Hash the packet hash
+        hasher.update(self.0);
+
+        // Hash the path
+        hasher.update(path);
+
+        PacketPathHash(hasher.finalize().into())
+    }
+}
 
 impl Serialize for PacketHash {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -180,6 +193,14 @@ impl Serialize for PacketHash {
     {
         let hex_string = format!("0x{}", hex::encode(self.0)); // Using `hex` crate for hex encoding
         serializer.serialize_str(&hex_string)
+    }
+}
+
+pub struct PacketPathHash([u8; 32]);
+
+impl PacketPathHash {
+    fn to_0x_hex(&self) -> String {
+        format!("0x{}", hex::encode(self.0))
     }
 }
 
@@ -508,29 +529,35 @@ mod tests {
         assert_eq!(
             json.0,
             json!({
-                "code": "OK",
-                "packet_hash": "0xebf016a1ecb0c90eb3274f5881089defd65f7f78ea009271d43d0fbbdd25a8e0",
-                "result": {
-                  "instruction": {
-                    "opcode": 3,
-                    "operand": {
-                      "_type": "FungibleAssetOrder",
-                      "baseAmount": "0x0",
-                      "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
-                      "baseTokenName": "ChainLink Token",
-                      "baseTokenPath": "0x0",
-                      "baseTokenSymbol": "LINK",
-                      "quoteAmount": "0x0",
-                      "quoteToken": "0xd1b482d1b947a96e96c9b76d15de34f7f70a20a1",
-                      "receiver": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa",
-                      "sender": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa"
+              "code": "OK",
+              "packet_hash": "0xebf016a1ecb0c90eb3274f5881089defd65f7f78ea009271d43d0fbbdd25a8e0",
+              "result": {
+                "instruction": {
+                  "opcode": 3,
+                  "operand": {
+                    "_ack": {
+                      "fillType": "0xb0cad0",
+                      "marketMaker": "0x"
                     },
-                    "version": 0
+                    "_index": "",
+                    "_instruction_hash": "0x8326770d0281813f82e00b6888e829e3d383202fcb1f30ec68ad867ba0f08f0e",
+                    "_type": "FungibleAssetOrder",
+                    "baseAmount": "0x0",
+                    "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
+                    "baseTokenName": "ChainLink Token",
+                    "baseTokenPath": "0x0",
+                    "baseTokenSymbol": "LINK",
+                    "quoteAmount": "0x0",
+                    "quoteToken": "0xd1b482d1b947a96e96c9b76d15de34f7f70a20a1",
+                    "receiver": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa",
+                    "sender": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa"
                   },
-                  "path": "0x0",
-                  "salt": "0x0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc"
-                }
-              })
+                  "version": 0
+                },
+                "path": "0x0",
+                "salt": "0x0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc"
+              }
+            })
         );
     }
 
@@ -552,13 +579,37 @@ mod tests {
         assert_eq!(
             json.0,
             json!({
-                "code": "ERROR",
-                "details": {
-                  "message": "selecting decoder",
-                  "source": "unsupported channel version: does-not-exist"
-                },
-                "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
-              })
+              "code": "ERROR",
+              "details": {
+                "message": "selecting decoder",
+                "source": "unsupported channel version: does-not-exist"
+              },
+              "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
+            })
+        );
+    }
+
+    #[test]
+    fn test_error_missing_value() {
+        let json = decode_packet_ack_0_1(
+            Some("does-not-exist"),
+            Some(1),
+            Some(2),
+            Some(&hex::decode("0b").unwrap()),
+            Some(3),
+            None,
+            Some(&hex::decode("0b").unwrap()),
+            Some("tree"),
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "HASH_ERROR",
+              "message": "error calculating hash: timeout_timestamp is required"
+            })
         );
     }
 
@@ -580,13 +631,13 @@ mod tests {
         assert_eq!(
             json.0,
             json!({
-                "code": "ERROR",
-                "details": {
-                  "message": "decode packet",
-                  "source": "decoding zkgm packet"
-                },
-                "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
-              })
+              "code": "ERROR",
+              "details": {
+                "message": "decode packet",
+                "source": "decoding zkgm packet"
+              },
+              "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
+            })
         );
     }
 }

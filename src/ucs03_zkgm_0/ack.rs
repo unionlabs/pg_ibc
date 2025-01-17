@@ -4,7 +4,7 @@ use serde::ser::Error as SerdeError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::Value;
 
-use crate::ucs03_zkgm_0::packet::{add_path, Instruction, Operand, ZkgmPacket};
+use crate::ucs03_zkgm_0::packet::{Instruction, Operand, ZkgmPacket};
 
 sol! {
     #[derive(Serialize, Debug)]
@@ -136,9 +136,7 @@ pub fn decode(packet: &[u8], ack: &[u8]) -> Result<Value> {
 
     let instruction_ack = InstructionPacketAck { instruction, ack };
 
-    let mut value = serde_json::to_value(&instruction_ack).context("formatting json")?;
-
-    add_path(&mut value, vec![]);
+    let value = serde_json::to_value(&instruction_ack).context("formatting json")?;
 
     Ok(value)
 }
@@ -180,13 +178,11 @@ mod tests {
                 "_type": "Batch",
                 "acknowledgements": [
                   {
-                    "_index": "0",
                     "_type": "FungibleAssetOrder",
                     "fillType": "0xb0cad0",
                     "marketMaker": "0x"
                   },
                   {
-                    "_index": "1",
                     "_type": "Multiplex",
                     "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                   }
