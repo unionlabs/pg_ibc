@@ -184,19 +184,6 @@ fn decode_packet_ack_0_1(
 }
 
 pub struct PacketHash([u8; 32]);
-impl PacketHash {
-    fn hash_with_path(&self, path: &[u8]) -> PacketPathHash {
-        let mut hasher = Keccak256::new();
-
-        // Hash the packet hash
-        hasher.update(self.0);
-
-        // Hash the path
-        hasher.update(path);
-
-        PacketPathHash(hasher.finalize().into())
-    }
-}
 
 impl Serialize for PacketHash {
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -554,7 +541,7 @@ mod tests {
                     "marketMaker": "0x"
                   },
                   "_index": "",
-                  "_instruction_hash": "0x8326770d0281813f82e00b6888e829e3d383202fcb1f30ec68ad867ba0f08f0e",
+                  "_instruction_hash": "0xb2be16bee56e5e0929d495b7e536f39706fa5624b15160fe31101a9c5ab4d4c1",
                   "opcode": 3,
                   "operand": {
                     "_type": "FungibleAssetOrder",

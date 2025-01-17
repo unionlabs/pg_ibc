@@ -1,12 +1,14 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 
-use alloy_sol_types::{sol, SolType};
+use alloy_sol_types::{sol, SolValue};
 use anyhow::{anyhow, Context, Result};
 use serde::ser::Error as SerdeError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::Value;
+use sha3::{Digest, Keccak256};
 
-use crate::{Packet, PacketHash};
+use crate::{Packet, PacketHash, PacketPathHash};
 
 // source: github:unionlabs/union/evm/contracts/apps/ucs/03-zkgm/Zkgm.sol
 const OP_FORWARD: u8 = 0x00;
@@ -138,7 +140,12 @@ pub fn decode(
 
     let mut value = serde_json::to_value(packet_value).context("formatting json")?;
 
-    add_path_and_hash(&mut value, &ack_value_by_path, packet_hash, &vec![])?;
+    add_path_and_hash(
+        &mut value,
+        &ack_value_by_path,
+        packet_hash,
+        &InstructionPath::new(),
+    )?;
 
     match mode {
         Some("flatten") => Ok(flatten_json_tree(&value)),
@@ -147,37 +154,44 @@ pub fn decode(
     }
 }
 
-fn find_acks(ack: &mut Value) -> Result<HashMap<Vec<u8>, Value>> {
+fn find_acks(ack: &mut Value) -> Result<HashMap<InstructionPath, Value>> {
     let mut result = HashMap::new();
 
-    add_acks(ack, &vec![], &mut result)?;
+    add_acks(ack, &InstructionPath::new(), &mut result)?;
 
     Ok(result)
 }
 
-fn add_acks(ack: &mut Value, path: &Vec<u8>, result: &mut HashMap<Vec<u8>, Value>) -> Result<()> {
+fn add_acks(
+    ack: &mut Value,
+    instruction_path: &InstructionPath,
+    result: &mut HashMap<InstructionPath, Value>,
+) -> Result<()> {
     match ack {
         // If it's an object, check for "_type" and process its fields
         Value::Object(map) => {
             for (_, value) in map.iter_mut() {
-                let _ = add_acks(value, path, result);
+                let _ = add_acks(value, instruction_path, result);
             }
 
             if map.contains_key("_type") {
-                map.insert("_index".to_string(), Value::String(to_path_string(path)));
-                result.insert(path.clone(), ack.clone());
+                map.insert(
+                    "_index".to_string(),
+                    Value::String(instruction_path.to_string()),
+                );
+                result.insert(instruction_path.clone(), ack.clone());
             }
         }
         // If it's an array, recurse into each element and add index to the path
         Value::Array(arr) => {
             for (index, value) in arr.iter_mut().enumerate() {
-                let mut new_path = path.clone();
-                new_path.push(
+                let new_instruction_path = instruction_path.new_with_child(
                     index
                         .try_into()
                         .context(format!("converting index {} from usize to u8", index))?,
                 );
-                add_acks(value, &new_path, result)?;
+
+                add_acks(value, &new_instruction_path, result)?;
             }
         }
         _ => {} // Do nothing for primitive types
@@ -186,32 +200,51 @@ fn add_acks(ack: &mut Value, path: &Vec<u8>, result: &mut HashMap<Vec<u8>, Value
     Ok(())
 }
 
-fn to_path_string(path: &[u8]) -> String {
-    path.iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(".")
+#[derive(Eq, PartialEq, Hash, Clone)]
+struct InstructionPath(Vec<u32>);
+
+impl InstructionPath {
+    fn new() -> Self {
+        Self(vec![])
+    }
+    fn new_with_child(&self, child: u32) -> Self {
+        let mut new_path = self.0.clone();
+        new_path.push(child);
+
+        Self(new_path)
+    }
+}
+
+impl Display for InstructionPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(
+            self.0
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(".")
+                .as_str(),
+        )
+    }
 }
 
 fn get_ack_for_path(
-    ack_value_by_path: &HashMap<Vec<u8>, Value>,
-    packet_path: &[u8],
+    ack_value_by_path: &HashMap<InstructionPath, Value>,
+    instruction_path: &InstructionPath,
     expected_type: &String,
 ) -> Result<Option<Value>> {
-    let packet_path_string = to_path_string(packet_path);
-
-    if let Some(ack) = ack_value_by_path.get(packet_path) {
+    if let Some(ack) = ack_value_by_path.get(instruction_path) {
         if let Value::Object(ack) = ack {
             if let (Some(Value::String(ack_type)), Some(Value::String(ack_index))) =
                 (ack.get("_type"), ack.get("_index"))
             {
                 // expect type and path to align
-                if expected_type != ack_type || &packet_path_string != ack_index {
+                if expected_type != ack_type || &instruction_path.to_string() != ack_index {
                     return Err(anyhow!(
                         "type/index does not align packet type {} <> ack type {} (packet path: {}, ack path: {})",
                         expected_type,
                         ack_type,
-                        packet_path_string,
+                        instruction_path,
                         ack_index
                     ));
                 }
@@ -224,44 +257,59 @@ fn get_ack_for_path(
                 return Ok(Some(Value::Object(ack)));
             } else {
                 return Err(anyhow!(
-                    "missing type and/or path in path: {}",
-                    packet_path_string
+                    "missing type and/or path in path: {instruction_path}"
                 ));
             }
         } else {
-            return Err(anyhow!(
-                "ack in path: {} is not an Object",
-                packet_path_string
-            ));
+            return Err(anyhow!("ack in path: {instruction_path} is not an Object"));
         }
     }
 
     Ok(None)
 }
 
+impl PacketHash {
+    fn hash_with_path(&self, path: &InstructionPath) -> PacketPathHash {
+        let mut hasher = Keccak256::new();
+
+        // Hash the packet hash
+        hasher.update(self.0);
+
+        // Hash the path
+        hasher.update(path.0.abi_encode());
+
+        PacketPathHash(hasher.finalize().into())
+    }
+}
+
 fn add_path_and_hash(
     packet: &mut Value,
-    ack_value_by_path: &HashMap<Vec<u8>, Value>,
+    ack_value_by_path: &HashMap<InstructionPath, Value>,
     packet_hash: &PacketHash,
-    path: &Vec<u8>,
+    instruction_path: &InstructionPath,
 ) -> Result<()> {
     match packet {
         // If it's an object, check for "_type" and process its fields
         Value::Object(map) => {
             for (_, value) in map.iter_mut() {
-                add_path_and_hash(value, ack_value_by_path, packet_hash, path)?;
+                add_path_and_hash(value, ack_value_by_path, packet_hash, instruction_path)?;
             }
 
             if let Some(Value::Object(operand)) = map.get("operand") {
                 if let Some(Value::String(packet_type)) = operand.get("_type") {
-                    if let Some(ack) = get_ack_for_path(ack_value_by_path, path, packet_type)? {
+                    if let Some(ack) =
+                        get_ack_for_path(ack_value_by_path, instruction_path, packet_type)?
+                    {
                         map.insert("_ack".to_string(), ack);
                     }
 
-                    map.insert("_index".to_string(), Value::String(to_path_string(path)));
+                    map.insert(
+                        "_index".to_string(),
+                        Value::String(instruction_path.to_string()),
+                    );
                     map.insert(
                         "_instruction_hash".to_string(),
-                        Value::String(packet_hash.hash_with_path(path).to_0x_hex()),
+                        Value::String(packet_hash.hash_with_path(instruction_path).to_0x_hex()),
                     );
                 }
             }
@@ -269,13 +317,13 @@ fn add_path_and_hash(
         // If it's an array, recurse into each element and add index to the path
         Value::Array(arr) => {
             for (index, value) in arr.iter_mut().enumerate() {
-                let mut new_path = path.clone();
-                new_path.push(
+                let new_instruction_path = instruction_path.new_with_child(
                     index
                         .try_into()
                         .context(format!("converting index {} from usize to u8", index))?,
                 );
-                add_path_and_hash(value, ack_value_by_path, packet_hash, &new_path)?;
+
+                add_path_and_hash(value, ack_value_by_path, packet_hash, &new_instruction_path)?;
             }
         }
         _ => {} // Do nothing for primitive types
@@ -341,7 +389,7 @@ mod tests {
             json!({
               "instruction": {
                 "_index": "",
-                "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
+                "_instruction_hash": "0x02ce32bed30842ace78d6dd11b5c473f23a7fe47341f70996d39525428e373ed",
                 "opcode": 3,
                 "operand": {
                   "_type": "FungibleAssetOrder",
@@ -416,7 +464,7 @@ mod tests {
                   ]
                 },
                 "_index": "",
-                "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
+                "_instruction_hash": "0x02ce32bed30842ace78d6dd11b5c473f23a7fe47341f70996d39525428e373ed",
                 "opcode": 2,
                 "operand": {
                   "_type": "Batch",
@@ -427,7 +475,7 @@ mod tests {
                         "marketMaker": "0x"
                       },
                       "_index": "0",
-                      "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
+                      "_instruction_hash": "0x69e40f6af822c360edf576c71482d9bb176e54a4630c0b7ed4194b02df0c30f7",
                       "opcode": 3,
                       "operand": {
                         "_type": "FungibleAssetOrder",
@@ -448,7 +496,7 @@ mod tests {
                         "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                       },
                       "_index": "1",
-                      "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
+                      "_instruction_hash": "0xdb2bc9ced66bc9a4e1f66497f5ebe43206c2061cab847b3ed3cb165c4ffad3db",
                       "opcode": 1,
                       "operand": {
                         "_type": "Multiplex",
@@ -488,14 +536,14 @@ mod tests {
             json!({
               "instruction": {
                 "_index": "",
-                "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
+                "_instruction_hash": "0x02ce32bed30842ace78d6dd11b5c473f23a7fe47341f70996d39525428e373ed",
                 "opcode": 2,
                 "operand": {
                   "_type": "Batch",
                   "instructions": [
                     {
                       "_index": "0",
-                      "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
+                      "_instruction_hash": "0x69e40f6af822c360edf576c71482d9bb176e54a4630c0b7ed4194b02df0c30f7",
                       "opcode": 3,
                       "operand": {
                         "_type": "FungibleAssetOrder",
@@ -513,7 +561,7 @@ mod tests {
                     },
                     {
                       "_index": "1",
-                      "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
+                      "_instruction_hash": "0xdb2bc9ced66bc9a4e1f66497f5ebe43206c2061cab847b3ed3cb165c4ffad3db",
                       "opcode": 1,
                       "operand": {
                         "_type": "Multiplex",
@@ -570,7 +618,7 @@ mod tests {
                   ]
                 },
                 "_index": "",
-                "_instruction_hash": "0x290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563",
+                "_instruction_hash": "0x02ce32bed30842ace78d6dd11b5c473f23a7fe47341f70996d39525428e373ed",
                 "opcode": 2,
                 "operand": {
                   "_type": "Batch",
@@ -581,7 +629,7 @@ mod tests {
                         "marketMaker": "0x"
                       },
                       "_index": "0",
-                      "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
+                      "_instruction_hash": "0x69e40f6af822c360edf576c71482d9bb176e54a4630c0b7ed4194b02df0c30f7",
                       "opcode": 3,
                       "operand": {
                         "_type": "FungibleAssetOrder",
@@ -602,7 +650,7 @@ mod tests {
                         "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                       },
                       "_index": "1",
-                      "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
+                      "_instruction_hash": "0xdb2bc9ced66bc9a4e1f66497f5ebe43206c2061cab847b3ed3cb165c4ffad3db",
                       "opcode": 1,
                       "operand": {
                         "_type": "Multiplex",
@@ -623,7 +671,7 @@ mod tests {
                   "marketMaker": "0x"
                 },
                 "_index": "0",
-                "_instruction_hash": "0xf39a869f62e75cf5f0bf914688a6b289caf2049435d8e68c5c5e6d05e44913f3",
+                "_instruction_hash": "0x69e40f6af822c360edf576c71482d9bb176e54a4630c0b7ed4194b02df0c30f7",
                 "opcode": 3,
                 "operand": {
                   "_type": "FungibleAssetOrder",
@@ -644,7 +692,7 @@ mod tests {
                   "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                 },
                 "_index": "1",
-                "_instruction_hash": "0xc13ad76448cbefd1ee83b801bcd8f33061f2577d6118395e7b44ea21c7ef62e0",
+                "_instruction_hash": "0xdb2bc9ced66bc9a4e1f66497f5ebe43206c2061cab847b3ed3cb165c4ffad3db",
                 "opcode": 1,
                 "operand": {
                   "_type": "Multiplex",
