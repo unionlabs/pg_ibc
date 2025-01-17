@@ -40,9 +40,24 @@ pub fn decode_transfer_packet_0_1(
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 #[serde(tag = "code")]
 enum DecodeResult {
-    Ok(DecodeOk),
-    Error(DecodeError),
-    HashError(ErrorDetails),
+    Ok(DecodeResultOk),
+    Error(DecodeResultError),
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum DecodeResultOk {
+    Decoded(DecodeOk),
+    NoDecoder(NoDecodeOk),
+}
+
+
+#[derive(Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(tag = "phase")]
+enum DecodeResultError {
+    Hashing(ErrorDetails),
+    Decoding(DecodingError),
 }
 
 #[derive(Serialize)]
@@ -52,7 +67,12 @@ struct DecodeOk {
 }
 
 #[derive(Serialize)]
-struct DecodeError {
+struct NoDecodeOk {
+    packet_hash: PacketHash,
+}
+
+#[derive(Serialize)]
+struct DecodingError {
     details: ErrorDetails,
     packet_hash: PacketHash,
 }
@@ -75,17 +95,17 @@ fn decode_ack_0_1(packet: &[u8], ack: &[u8], channel_version: &str) -> pgrx::Jso
     };
 
     let result = match result {
-        Ok(result) => DecodeResult::Ok(DecodeOk {
+        Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk {
             result,
             packet_hash: PacketHash([0; 32]),
-        }),
-        Err(err) => DecodeResult::Error(DecodeError {
+        }) ),
+        Err(err) => DecodeResult::Error(DecodeResultError::Decoding(DecodingError {
             details: ErrorDetails {
                 message: err.to_string(),
                 source: err.source().map(|s| s.to_string()),
             },
             packet_hash: PacketHash([0; 32]),
-        }),
+        })),
     };
 
     pgrx::JsonB(serde_json::to_value(result).unwrap())
@@ -102,17 +122,17 @@ fn decode_packet_0_1(packet: &[u8], channel_version: &str) -> pgrx::JsonB {
     };
 
     let result = match result {
-        Ok(result) => DecodeResult::Ok(DecodeOk {
+        Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk {
             result,
             packet_hash: PacketHash([0; 32]),
-        }),
-        Err(err) => DecodeResult::Error(DecodeError {
+        })),
+        Err(err) => DecodeResult::Error(DecodeResultError::Decoding(DecodingError {
             details: ErrorDetails {
                 message: err.to_string(),
                 source: err.source().map(|s| s.to_string()),
             },
             packet_hash: PacketHash([0; 32]),
-        }),
+        })),
     };
 
     pgrx::JsonB(serde_json::to_value(result).unwrap())
@@ -130,45 +150,33 @@ fn decode_packet_ack_0_1(
     ack: Option<&[u8]>,
     mode: Option<&str>,
 ) -> pgrx::JsonB {
-    let result = match hash_packet(
+    let decode_result = match hash_packet(
         source_channel_id,
         destination_channel_id,
         packet,
         timeout_height,
         timeout_timestamp,
     ) {
-        Ok((packet, packet_hash)) => match match channel_version {
-            Some("ucs03-zkgm-0") => {
-                ucs03_zkgm_0::packet_ack::decode(&packet, ack, &packet_hash, mode)
-            }
-            Some(channel_version) => Err(anyhow::anyhow!(
-                "unsupported channel version: {}",
-                channel_version
-            )
-            .context("selecting decoder")),
-            None => {
-                Err(anyhow::anyhow!("channel_version is required").context("selecting decoder"))
-            }
-        } {
-            Ok(result) => DecodeResult::Ok(DecodeOk {
-                packet_hash,
-                result,
-            }),
-            Err(error) => DecodeResult::Error(DecodeError {
-                packet_hash,
-                details: ErrorDetails {
-                    message: error.to_string(),
-                    source: error.source().map(|s| s.to_string()),
-                },
-            }),
+        Ok((packet, packet_hash)) => match &channel_version {
+            Some("ucs03-zkgm-0") => match ucs03_zkgm_0::packet_ack::decode(&packet, ack, &packet_hash, mode) {
+                Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk { result, packet_hash })),
+                Err(error) => DecodeResult::Error(DecodeResultError::Decoding(DecodingError {
+                    packet_hash,
+                    details: ErrorDetails {
+                        message: error.to_string(),
+                        source: error.source().map(|s| s.to_string()),
+                    },
+                }))
+            },
+            _ => DecodeResult::Ok(DecodeResultOk::NoDecoder(NoDecodeOk { packet_hash })),
         },
-        Err(error) => DecodeResult::HashError(ErrorDetails {
+        Err(error) => DecodeResult::Error(DecodeResultError::Hashing(ErrorDetails {
             message: format!("error calculating hash: {}", error),
             source: None,
-        }),
+        })),
     };
 
-    pgrx::JsonB(serde_json::to_value(result).unwrap())
+    pgrx::JsonB(serde_json::to_value(decode_result).unwrap())
 }
 
 pub struct PacketHash([u8; 32]);
@@ -416,6 +424,7 @@ mod tests {
             json.0,
             json!({
               "code": "ERROR",
+              "phase": "DECODING",
               "packet_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
               "details": {
                 "message": "selecting packet decoder",
@@ -435,6 +444,7 @@ mod tests {
             json.0,
             json!({
               "code": "ERROR",
+              "phase": "DECODING",
               "packet_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
               "details": {
                 "message": "decoding zkgm packet",
@@ -481,6 +491,7 @@ mod tests {
             json.0,
             json!({
               "code": "ERROR",
+              "phase": "DECODING",
               "packet_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
               "details": {
                 "message": "selecting ack decoder",
@@ -504,6 +515,7 @@ mod tests {
             json.0,
             json!({
               "code": "ERROR",
+              "phase": "DECODING",
               "packet_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
               "details": {
                 "message": "decoding zkgm packet",
@@ -579,13 +591,9 @@ mod tests {
         assert_eq!(
             json.0,
             json!({
-              "code": "ERROR",
-              "details": {
-                "message": "selecting decoder",
-                "source": "unsupported channel version: does-not-exist"
-              },
-              "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
-            })
+                "code": "OK",
+                "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
+              })
         );
     }
 
@@ -607,7 +615,8 @@ mod tests {
         assert_eq!(
             json.0,
             json!({
-              "code": "HASH_ERROR",
+              "code": "ERROR",
+              "phase": "HASHING",
               "message": "error calculating hash: timeout_timestamp is required"
             })
         );
@@ -632,6 +641,7 @@ mod tests {
             json.0,
             json!({
               "code": "ERROR",
+              "phase": "DECODING",
               "details": {
                 "message": "decode packet",
                 "source": "decoding zkgm packet"
