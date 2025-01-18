@@ -5,7 +5,7 @@ use alloy_sol_types::{sol, SolValue};
 use anyhow::{anyhow, Context, Result};
 use serde::ser::Error as SerdeError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use sha3::{Digest, Keccak256};
 
 use crate::{Packet, PacketHash, PacketPathHash};
@@ -334,18 +334,33 @@ fn add_path_and_hash(
 pub fn flatten_json_tree(json: &Value) -> Value {
     let mut result = Vec::new();
 
-    flatten_json_tree_recursive(json, &mut result);
+    // collect root attributes, they will be added to each result entry inside a '_root' element
+    let root = match json {
+        Value::Object(map) => {
+            let mut map = map.clone();
+            map.retain(|_, value| !value.is_object());
+
+            Value::Object(map)
+        }
+        _ => Value::Object(Map::new()),
+    };
+
+    flatten_json_tree_recursive(json, &root, &mut result);
 
     Value::Array(result)
 }
 
-fn flatten_json_tree_recursive(json: &Value, result: &mut Vec<Value>) {
+fn flatten_json_tree_recursive(json: &Value, root: &Value, result: &mut Vec<Value>) {
     match json {
         Value::Object(map) => {
             if let Some(Value::Object(operand)) = map.get("operand") {
                 if operand.contains_key("_type") {
+                    // extend the entry with the 'root' properties
+                    let mut entry = map.clone();
+                    entry.insert("_root".to_string(), root.clone());
+
                     // Add the current object to the result
-                    result.push(json.clone());
+                    result.push(Value::Object(entry));
                 }
             }
 
@@ -353,12 +368,12 @@ fn flatten_json_tree_recursive(json: &Value, result: &mut Vec<Value>) {
                 "_ack" => None, // we don't want to change the ack
                 _ => Some(value),
             }) {
-                flatten_json_tree_recursive(value, result);
+                flatten_json_tree_recursive(value, root, result);
             }
         }
         Value::Array(arr) => {
             for value in arr {
-                flatten_json_tree_recursive(value, result);
+                flatten_json_tree_recursive(value, root, result);
             }
         }
         _ => {}
@@ -619,6 +634,10 @@ mod tests {
                 },
                 "_index": "",
                 "_instruction_hash": "0x02ce32bed30842ace78d6dd11b5c473f23a7fe47341f70996d39525428e373ed",
+                "_root": {
+                  "path": "0x0",
+                  "salt": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
                 "opcode": 2,
                 "operand": {
                   "_type": "Batch",
@@ -672,6 +691,10 @@ mod tests {
                 },
                 "_index": "0",
                 "_instruction_hash": "0x69e40f6af822c360edf576c71482d9bb176e54a4630c0b7ed4194b02df0c30f7",
+                "_root": {
+                  "path": "0x0",
+                  "salt": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
                 "opcode": 3,
                 "operand": {
                   "_type": "FungibleAssetOrder",
@@ -693,6 +716,10 @@ mod tests {
                 },
                 "_index": "1",
                 "_instruction_hash": "0xdb2bc9ced66bc9a4e1f66497f5ebe43206c2061cab847b3ed3cb165c4ffad3db",
+                "_root": {
+                  "path": "0x0",
+                  "salt": "0x0000000000000000000000000000000000000000000000000000000000000000"
+                },
                 "opcode": 1,
                 "operand": {
                   "_type": "Multiplex",

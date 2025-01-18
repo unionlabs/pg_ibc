@@ -426,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn test_decode_packet_0_1_error_decoding_flattened() {
+    fn test_decode_packet_0_1_error_decoding() {
         let json = decode_packet_0_1(&hex::decode("0b").unwrap(), "ucs03-zkgm-0");
 
         dbg!(serde_json::to_string(&json.0).unwrap());
