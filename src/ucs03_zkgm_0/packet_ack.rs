@@ -1,126 +1,12 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 
-use alloy_sol_types::{sol, SolValue};
+use alloy_sol_types::SolValue;
 use anyhow::{anyhow, Context, Result};
-use serde::ser::Error as SerdeError;
-use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::{Map, Value};
 use sha3::{Digest, Keccak256};
 
 use crate::{Packet, PacketHash, PacketPathHash};
-
-// source: github:unionlabs/union/evm/contracts/apps/ucs/03-zkgm/Zkgm.sol
-const OP_FORWARD: u8 = 0x00;
-const OP_MULTIPLEX: u8 = 0x01;
-const OP_BATCH: u8 = 0x02;
-const OP_FUNGIBLE_ASSET_TRANSFER: u8 = 0x03;
-
-sol! {
-    #[derive(Serialize)]
-    struct ZkgmPacket {
-        bytes32 salt;
-        uint256 path;
-        Instruction instruction;
-    }
-
-    #[derive(Debug)]
-    struct Instruction {
-        uint8 version;
-        uint8 opcode;
-        bytes operand;
-    }
-
-    #[derive(Serialize)]
-    struct Forward {
-        uint32 channelId;
-        uint64 timeoutHeight;
-        uint64 timeoutTimestamp;
-        Instruction instruction;
-    }
-
-    #[derive(Serialize)]
-    struct Multiplex {
-        bytes sender;
-        bool eureka;
-        bytes contractAddress;
-        bytes contractCalldata;
-    }
-
-    #[derive(Serialize)]
-    struct Batch {
-        Instruction[] instructions;
-    }
-
-    #[derive(Serialize)]
-    struct FungibleAssetOrder {
-        bytes sender;
-        bytes receiver;
-        bytes baseToken;
-        uint256 baseAmount;
-        string baseTokenSymbol;
-        string baseTokenName;
-        uint256 baseTokenPath;
-        bytes quoteToken;
-        uint256 quoteAmount;
-    }
-}
-
-impl Serialize for Instruction {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        // Create a struct with version, opcode, and operand
-        let mut state = serializer.serialize_struct("Instruction", 3)?;
-        state.serialize_field("version", &self.version)?;
-        state.serialize_field("opcode", &self.opcode)?;
-
-        // Custom serialization for operand based on version and opcode
-        let modified_operand = &self.decode_operand().map_err(|err| {
-            S::Error::custom(format!("error decoding operand (in packet): {err}"))
-        })?;
-        state.serialize_field("operand", &modified_operand)?;
-
-        state.end()
-    }
-}
-
-impl Instruction {
-    pub fn decode_operand(&self) -> Result<Operand> {
-        Ok(match (self.version, self.opcode) {
-            (0, OP_FORWARD) => Operand::Forward(
-                <Forward>::abi_decode_sequence(&self.operand, false).context("decoding Forward")?,
-            ),
-            (0, OP_MULTIPLEX) => Operand::Multiplex(
-                <Multiplex>::abi_decode_sequence(&self.operand, false)
-                    .context("decoding Multiplex")?,
-            ),
-            (0, OP_BATCH) => Operand::Batch(
-                <Batch>::abi_decode_sequence(&self.operand, false).context("decoding Batch")?,
-            ),
-            (0, OP_FUNGIBLE_ASSET_TRANSFER) => Operand::FungibleAssetOrder(
-                <FungibleAssetOrder>::abi_decode_sequence(&self.operand, false)
-                    .context("decoding FungibleAssetOrder")?,
-            ),
-            _ => Operand::Unsupported {
-                data: self.operand.clone(),
-            },
-        })
-    }
-}
-
-#[derive(Serialize)]
-#[serde(tag = "_type")]
-pub enum Operand {
-    Forward(Forward),
-    Multiplex(Multiplex),
-    Batch(Batch),
-    FungibleAssetOrder(FungibleAssetOrder),
-    Unsupported {
-        data: alloy_sol_types::private::Bytes,
-    },
-}
 
 pub fn decode(
     packet: &Packet,
@@ -140,11 +26,11 @@ pub fn decode(
 
     let mut value = serde_json::to_value(packet_value).context("formatting json")?;
 
-    add_path_and_hash(
+    add_path_ack_and_hash(
         &mut value,
         &ack_value_by_path,
         packet_hash,
-        &InstructionPath::new(),
+        &InstructionPath::root(),
     )?;
 
     match mode {
@@ -157,7 +43,7 @@ pub fn decode(
 fn find_acks(ack: &mut Value) -> Result<HashMap<InstructionPath, Value>> {
     let mut result = HashMap::new();
 
-    add_acks(ack, &InstructionPath::new(), &mut result)?;
+    add_acks(ack, &InstructionPath::root(), &mut result)?;
 
     Ok(result)
 }
@@ -174,7 +60,7 @@ fn add_acks(
                 let _ = add_acks(value, instruction_path, result);
             }
 
-            if map.contains_key("_type") {
+            if map.contains_key("_type") || instruction_path.is_root() {
                 map.insert(
                     "_index".to_string(),
                     Value::String(instruction_path.to_string()),
@@ -204,7 +90,7 @@ fn add_acks(
 struct InstructionPath(Vec<u32>);
 
 impl InstructionPath {
-    fn new() -> Self {
+    fn root() -> Self {
         Self(vec![])
     }
     fn new_with_child(&self, child: u32) -> Self {
@@ -212,6 +98,9 @@ impl InstructionPath {
         new_path.push(child);
 
         Self(new_path)
+    }
+    fn is_root(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
@@ -233,39 +122,61 @@ fn get_ack_for_path(
     instruction_path: &InstructionPath,
     expected_type: &String,
 ) -> Result<Option<Value>> {
-    if let Some(ack) = ack_value_by_path.get(instruction_path) {
-        if let Value::Object(ack) = ack {
-            if let (Some(Value::String(ack_type)), Some(Value::String(ack_index))) =
-                (ack.get("_type"), ack.get("_index"))
-            {
-                // expect type and path to align
-                if expected_type != ack_type || &instruction_path.to_string() != ack_index {
+    let Some(root) = ack_value_by_path.get(&InstructionPath::root()) else {
+        // no root ack => no ack information
+        return Ok(None);
+    };
+
+    let Some(tag) = root.get("tag") else {
+        dbg!(root);
+        // no root ack
+        return Err(anyhow!("missing root ack tag"));
+    };
+
+    let mut ack = if instruction_path.is_root() {
+        // root ack is stored in 'innerAck'
+        match root.get("innerAck") {
+            Some(Value::Object(inner_ack)) => inner_ack.clone(),
+            None => Map::new(),
+            _ => return Err(anyhow!("expecting object as innerAck")),
+        }
+    } else {
+        // non-root tags are in ack_value_by_path
+        match ack_value_by_path.get(instruction_path) {
+            Some(Value::Object(ack)) => {
+                if let (Some(Value::String(ack_type)), Some(Value::String(ack_index))) =
+                    (ack.get("_type"), ack.get("_index"))
+                {
+                    // expect type and path to align
+                    if expected_type != ack_type || &instruction_path.to_string() != ack_index {
+                        return Err(anyhow!(
+                            "type/index does not align packet type {} <> ack type {} (packet path: {}, ack path: {})",
+                            expected_type,
+                            ack_type,
+                            instruction_path,
+                            ack_index
+                        ));
+                    }
+
+                    // found a matching ack
+                    ack.clone()
+                } else {
                     return Err(anyhow!(
-                        "type/index does not align packet type {} <> ack type {} (packet path: {}, ack path: {})",
-                        expected_type,
-                        ack_type,
-                        instruction_path,
-                        ack_index
+                        "missing type and/or path in path: {instruction_path}"
                     ));
                 }
-
-                let mut ack = ack.clone();
-                ack.remove("_type");
-                ack.remove("_index");
-
-                // found a matching ack
-                return Ok(Some(Value::Object(ack)));
-            } else {
-                return Err(anyhow!(
-                    "missing type and/or path in path: {instruction_path}"
-                ));
             }
-        } else {
-            return Err(anyhow!("ack in path: {instruction_path} is not an Object"));
+            None => Map::new(),
+            _ => return Err(anyhow!("expecting object as ack")),
         }
-    }
+    };
 
-    Ok(None)
+    // add tag of the root ack
+    ack.remove("_type");
+    ack.remove("_index");
+    ack.insert("_tag".to_string(), tag.clone());
+
+    Ok(Some(Value::Object(ack)))
 }
 
 impl PacketHash {
@@ -282,7 +193,7 @@ impl PacketHash {
     }
 }
 
-fn add_path_and_hash(
+fn add_path_ack_and_hash(
     packet: &mut Value,
     ack_value_by_path: &HashMap<InstructionPath, Value>,
     packet_hash: &PacketHash,
@@ -292,7 +203,7 @@ fn add_path_and_hash(
         // If it's an object, check for "_type" and process its fields
         Value::Object(map) => {
             for (_, value) in map.iter_mut() {
-                add_path_and_hash(value, ack_value_by_path, packet_hash, instruction_path)?;
+                add_path_ack_and_hash(value, ack_value_by_path, packet_hash, instruction_path)?;
             }
 
             if let Some(Value::Object(operand)) = map.get("operand") {
@@ -323,7 +234,12 @@ fn add_path_and_hash(
                         .context(format!("converting index {} from usize to u8", index))?,
                 );
 
-                add_path_and_hash(value, ack_value_by_path, packet_hash, &new_instruction_path)?;
+                add_path_ack_and_hash(
+                    value,
+                    ack_value_by_path,
+                    packet_hash,
+                    &new_instruction_path,
+                )?;
             }
         }
         _ => {} // Do nothing for primitive types
@@ -407,8 +323,8 @@ mod tests {
                 "_instruction_hash": "0x02ce32bed30842ace78d6dd11b5c473f23a7fe47341f70996d39525428e373ed",
                 "opcode": 3,
                 "operand": {
-                  "_type": "FungibleAssetOrder",
-                  "baseAmount": "0x0",
+                "_type": "FungibleAssetOrder",
+                "baseAmount": "0x0",
                   "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
                   "baseTokenName": "ChainLink Token",
                   "baseTokenPath": "0x0",
@@ -464,6 +380,7 @@ mod tests {
             json!({
               "instruction": {
                 "_ack": {
+                  "_tag": "0x1",
                   "acknowledgements": [
                     {
                       "_index": "0",
@@ -486,6 +403,7 @@ mod tests {
                   "instructions": [
                     {
                       "_ack": {
+                        "_tag": "0x1",
                         "fillType": "0xb0cad0",
                         "marketMaker": "0x"
                       },
@@ -508,6 +426,7 @@ mod tests {
                     },
                     {
                       "_ack": {
+                        "_tag": "0x1",
                         "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                       },
                       "_index": "1",
@@ -618,6 +537,7 @@ mod tests {
             json!([
               {
                 "_ack": {
+                  "_tag": "0x1",
                   "acknowledgements": [
                     {
                       "_index": "0",
@@ -644,6 +564,7 @@ mod tests {
                   "instructions": [
                     {
                       "_ack": {
+                        "_tag": "0x1",
                         "fillType": "0xb0cad0",
                         "marketMaker": "0x"
                       },
@@ -666,6 +587,7 @@ mod tests {
                     },
                     {
                       "_ack": {
+                        "_tag": "0x1",
                         "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                       },
                       "_index": "1",
@@ -686,6 +608,7 @@ mod tests {
               },
               {
                 "_ack": {
+                  "_tag": "0x1",
                   "fillType": "0xb0cad0",
                   "marketMaker": "0x"
                 },
@@ -712,6 +635,7 @@ mod tests {
               },
               {
                 "_ack": {
+                  "_tag": "0x1",
                   "data": "0x0000000000000000000000000000000000000000000000000000000000000001"
                 },
                 "_index": "1",
@@ -731,6 +655,82 @@ mod tests {
                 "version": 0
               }
             ])
+        );
+    }
+
+    #[test]
+    fn test_issue() {
+        let packet = Packet {
+            source_channel_id: 1,
+            destination_channel_id: 2,
+            data: hex::decode("21DCD61E3C11DB415E36AA1CD285ED7C37A28501C017CDE58F7A2967545A7E270000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000005E0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000036000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002A00000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000016000000000000000000000000000000000000000000000000000000000000001C000000000000000000000000000000000000000000000000000000000000003E8000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000002400000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000026000000000000000000000000000000000000000000000000000000000000003E8000000000000000000000000000000000000000000000000000000000000001415EE7C367F4232241028C36E720803100757C6E90000000000000000000000000000000000000000000000000000000000000000000000000000000000000040756E696F6E316777716334776774797A6D747A76676D6B326A6565746C6B343570723063646834387A6D357471716D7464736A6675366A6C357338306337336C0000000000000000000000000000000000000000000000000000000000000014F2865969CF99A28BB77E25494FE12D5180FE0EFD00000000000000000000000000000000000000000000000000000000000000000000000000000000000000046D756E6F00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000046D756E6F0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000001C00000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000C00000000000000000000000000000000000000000000000000000000000000120000000000000000000000000000000000000000000000000000000000000001415EE7C367F4232241028C36E720803100757C6E90000000000000000000000000000000000000000000000000000000000000000000000000000000000000040756E696F6E316777716334776774797A6D747A76676D6B326A6565746C6B343570723063646834387A6D357471716D7464736A6675366A6C357338306337336C00000000000000000000000000000000000000000000000000000000000000807B22626F6E64223A7B22616D6F756E74223A7B22616D6F756E74223A2231323334222C2264656E6F6D223A226D756E6F227D2C2273616C74223A22307832316463643631653363313164623431356533366161316364323835656437633337613238353031633031376364653538663761323936373534356137653237227D7D").unwrap().into(),
+            timeout_height: 3,
+            timeout_timestamp: 4
+        };
+
+        let ack: &[u8] = &hex::decode("000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000").unwrap();
+
+        let json = decode(&packet, Some(ack), &PacketHash([0; 32]), None).unwrap();
+
+        dbg!(serde_json::to_string(&json).unwrap());
+
+        assert_eq!(
+            json,
+            json!({
+              "instruction": {
+                "_ack": {
+                  "_tag": "0x0"
+                },
+                "_index": "",
+                "_instruction_hash": "0x02ce32bed30842ace78d6dd11b5c473f23a7fe47341f70996d39525428e373ed",
+                "opcode": 2,
+                "operand": {
+                  "_type": "Batch",
+                  "instructions": [
+                    {
+                      "_ack": {
+                        "_tag": "0x0"
+                      },
+                      "_index": "0",
+                      "_instruction_hash": "0x69e40f6af822c360edf576c71482d9bb176e54a4630c0b7ed4194b02df0c30f7",
+                      "opcode": 3,
+                      "operand": {
+                        "_type": "FungibleAssetOrder",
+                        "baseAmount": "0x3e8",
+                        "baseToken": "0xf2865969cf99a28bb77e25494fe12d5180fe0efd",
+                        "baseTokenName": "",
+                        "baseTokenPath": "0x8",
+                        "baseTokenSymbol": "muno",
+                        "quoteAmount": "0x3e8",
+                        "quoteToken": "0x6d756e6f",
+                        "receiver": "0x756e696f6e316777716334776774797a6d747a76676d6b326a6565746c6b343570723063646834387a6d357471716d7464736a6675366a6c357338306337336c",
+                        "sender": "0x15ee7c367f4232241028c36e720803100757c6e9"
+                      },
+                      "version": 0
+                    },
+                    {
+                      "_ack": {
+                        "_tag": "0x0"
+                      },
+                      "_index": "1",
+                      "_instruction_hash": "0xdb2bc9ced66bc9a4e1f66497f5ebe43206c2061cab847b3ed3cb165c4ffad3db",
+                      "opcode": 1,
+                      "operand": {
+                        "_type": "Multiplex",
+                        "contractAddress": "0x756e696f6e316777716334776774797a6d747a76676d6b326a6565746c6b343570723063646834387a6d357471716d7464736a6675366a6c357338306337336c",
+                        "contractCalldata": "0x7b22626f6e64223a7b22616d6f756e74223a7b22616d6f756e74223a2231323334222c2264656e6f6d223a226d756e6f227d2c2273616c74223a22307832316463643631653363313164623431356533366161316364323835656437633337613238353031633031376364653538663761323936373534356137653237227d7d",
+                        "eureka": true,
+                        "sender": "0x15ee7c367f4232241028c36e720803100757c6e9"
+                      },
+                      "version": 0
+                    }
+                  ]
+                },
+                "version": 0
+              },
+              "path": "0x0",
+              "salt": "0x21dcd61e3c11db415e36aa1cd285ed7c37a28501c017cde58f7a2967545a7e27"
+            })
         );
     }
 }

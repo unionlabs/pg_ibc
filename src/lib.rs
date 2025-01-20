@@ -537,6 +537,7 @@ mod tests {
               "result": {
                 "instruction": {
                   "_ack": {
+                    "_tag": "0x1",
                     "fillType": "0xb0cad0",
                     "marketMaker": "0x"
                   },

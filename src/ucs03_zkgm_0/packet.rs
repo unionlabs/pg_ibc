@@ -25,7 +25,7 @@ sol! {
         bytes operand;
     }
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Debug)]
     struct Forward {
         uint32 channelId;
         uint64 timeoutHeight;
@@ -33,7 +33,7 @@ sol! {
         Instruction instruction;
     }
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Debug)]
     struct Multiplex {
         bytes sender;
         bool eureka;
@@ -41,12 +41,12 @@ sol! {
         bytes contractCalldata;
     }
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Debug)]
     struct Batch {
         Instruction[] instructions;
     }
 
-    #[derive(Serialize)]
+    #[derive(Serialize, Debug)]
     struct FungibleAssetOrder {
         bytes sender;
         bytes receiver;
@@ -71,10 +71,10 @@ impl Serialize for Instruction {
         state.serialize_field("opcode", &self.opcode)?;
 
         // Custom serialization for operand based on version and opcode
-        let modified_operand = &self.decode_operand().map_err(|err| {
+        let operand = &self.decode_operand().map_err(|err| {
             S::Error::custom(format!("error decoding operand (in packet): {err}"))
         })?;
-        state.serialize_field("operand", &modified_operand)?;
+        state.serialize_field("operand", &operand)?;
 
         state.end()
     }
@@ -104,7 +104,7 @@ impl Instruction {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(tag = "_type")]
 pub enum Operand {
     Forward(Forward),
