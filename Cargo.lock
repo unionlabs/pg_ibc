@@ -2626,10 +2626,12 @@ dependencies = [
  "criterion",
  "ethers",
  "hex",
+ "hex-literal",
  "pgrx",
  "pgrx-tests",
  "serde",
  "serde_json",
+ "sha2",
  "sha3",
 ]
 
