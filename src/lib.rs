@@ -151,6 +151,30 @@ fn decode_packet_ack_0_1(
     ack: Option<&[u8]>,
     mode: Option<&str>,
 ) -> pgrx::JsonB {
+    decode_packet_ack_0_2(
+        channel_version,
+        source_channel_id,
+        destination_channel_id,
+        packet,
+        timeout_height.map(|height| height.to_string()).as_deref(),
+        timeout_timestamp,
+        ack,
+        mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+#[pg_extern(immutable, parallel_safe)]
+fn decode_packet_ack_0_2(
+    channel_version: Option<&str>,
+    source_channel_id: Option<i32>,
+    destination_channel_id: Option<i32>,
+    packet: Option<&[u8]>,
+    timeout_height: Option<&str>, // would like to use pgrx::AnyNumeric, but this causes linking issues
+    timeout_timestamp: Option<&str>, // would like to use pgrx::AnyNumeric, but this causes linking issues
+    ack: Option<&[u8]>,
+    mode: Option<&str>,
+) -> pgrx::JsonB {
     let decode_result = match hash_packet(
         source_channel_id,
         destination_channel_id,
@@ -219,7 +243,7 @@ fn hash_packet(
     source_channel_id: Option<i32>,
     destination_channel_id: Option<i32>,
     packet: Option<&[u8]>,
-    timeout_height: Option<i64>,
+    timeout_height: Option<&str>,
     timeout_timestamp: Option<&str>,
 ) -> anyhow::Result<(Packet, PacketHash)> {
     // source: https://github.com/unionlabs/union/blob/main/lib/ibc-solidity/src/lib.rs
@@ -237,7 +261,7 @@ fn hash_packet(
         ),
         timeout_height: timeout_height
             .ok_or_else(|| anyhow!("timeout_height is required"))?
-            .try_into()
+            .parse()
             .context("convert timeout_height")?,
         timeout_timestamp: timeout_timestamp
             .ok_or_else(|| anyhow!("timeout_timestamp is required"))?
@@ -641,6 +665,35 @@ mod tests {
                 "source": "decoding zkgm packet"
               },
               "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_packet_ack_0_1_error_decoding_u64_max_values() {
+        let json = decode_packet_ack_0_2(
+            Some("ucs03-zkgm-0"),
+            Some(1),
+            Some(2),
+            Some(&hex::decode("0b").unwrap()),
+            Some(u64::MAX.to_string()).as_deref(),
+            Some(u64::MAX.to_string()).as_deref(),
+            Some(&hex::decode("0b").unwrap()),
+            Some("tree"),
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "ERROR",
+              "phase": "DECODING",
+              "details": {
+                "message": "decode packet",
+                "source": "decoding zkgm packet"
+              },
+              "packet_hash": "0x754510cfb7fe3203b902fb49bb66b72f0d0a6fe401e8a2f0fce962a5df9c602d"
             })
         );
     }
