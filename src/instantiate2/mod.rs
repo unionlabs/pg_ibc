@@ -12,9 +12,9 @@ pub fn instantiate2_0_1(
     original_token: &[u8],
     creator: &[u8],
 ) -> Vec<u8> {
+    // based on the dummy contract
     const CHECKSUM: &[u8; 32] =
-        &hex!("B3FA6CECF2E23917CD4D17803C1500D52ABCF3D54286295066C992C9425C8B91");
-    assert!(CHECKSUM.len() == 32);
+        &hex!("ec827349ed4c1fec5a9c3462ff7c979d4c40e7aa43b16ed34469d04ff835f2a1");
 
     const MSG: &[u8] = b"";
 
@@ -62,19 +62,22 @@ mod tests {
 
     #[test]
     fn test_known_address() {
-        // data for this test case obtain from  https://staging.app.union.build/explorer/transfers/0x2E5810EA014F3F16D337C9A268F23945C84DA8A9B36ECF6A618064D8C9EA0606
-        let original_token = hex::decode("6d756e6f").unwrap();
+        // data for this test case obtain from  https://app.union.build/explorer/transfers/0x975aefd29f590a4416d211f5b269099158d3b155b2891634d1067f32c538a8bf
+        let original_token = hex::decode("685ce6742351ae9b618f383883d6d1e0c5a31b4b").unwrap();
 
-        // bech32-decoded: "bbn143365ksyxj0zxj26djqsjltscty75qdlpwry6yxhr8ckzhq92xas8pz8sn"
+        // bech32-decoded deployer contract: "union1yl6hyqnuczg6828zkc7ntnge6cdnyf7dqmlwjkcn5xqp4pa09seqvut4nv"
         let deployer =
-            hex::decode("ac63aa5a04349e23495a6c81097d70c2c9ea01bf0b864d10d719f1615c0551bb")
+            hex::decode("27F572027CC091A3A8E2B63D35CD19D61B3227CD06FEE95B13A1801A87AF2C32")
                 .unwrap();
 
-        let wrapped_token = instantiate2_0_1(&[], 14, &original_token, &deployer);
+        let receiver_channel_id: i64 = 1;
 
-        // bech32-decoded & hex decoded: "0x62626e3165397963633737356b7876376b6c7135656839767a6e6a736c70733374717433663274746b753870746b79397171743665636a716e3537307270"
+        let wrapped_token = instantiate2_0_1(&[], receiver_channel_id, &original_token, &deployer);
+
+        // bech32-decoded quote-token: union1surgyrm5xwfwughm6rfv76kd6vm2fc8vgpxxd6k6su6xsrxz0jgs7w967n
+        // 0x8706820F743392EE22FBD0D2CF6ACDD336A4E0EC404C66EADA8734680CC27C91
         let expected =
-            hex::decode("c9498c7bd4b199eb7c14cdcac14e50f8611581714a96bb70e15d8850017ace24")
+            hex::decode("8706820F743392EE22FBD0D2CF6ACDD336A4E0EC404C66EADA8734680CC27C91")
                 .unwrap();
         assert_eq!(wrapped_token, expected);
     }
