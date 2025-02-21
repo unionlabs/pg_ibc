@@ -5,7 +5,9 @@ use serde::ser::Error as SerdeError;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use serde_json::Value;
 
-use crate::ucs03_zkgm_0::packet::{Instruction, Operand, ZkgmPacket};
+use crate::ucs03_zkgm_0::packet::{
+    Batch, Forward, FungibleAssetOrder, Instruction, Multiplex, Operand, ZkgmPacket,
+};
 
 const ACK_FAILURE: U256 = U256::ZERO;
 
@@ -106,20 +108,24 @@ impl Serialize for BatchPacketAck {
 
 fn decode_inner_ack(operand: &Operand, ack: &Bytes) -> Result<InnerAck> {
     Ok(match operand {
-        Operand::Forward(forward) => InnerAck::Forward(InstructionPacketAck {
+        Operand::Forward(Forward::V0(forward)) => InnerAck::Forward(InstructionPacketAck {
             instruction: forward.instruction.clone(),
-            ack: <Ack>::abi_decode_sequence(ack, false).context("decoding forward ack")?,
+            ack: <Ack>::abi_decode_sequence(ack, false).context("decoding ForwardAck V0")?,
         }),
-        Operand::Multiplex(_) => InnerAck::Multiplex { data: ack.clone() },
-        Operand::Batch(batch) => InnerAck::Batch(BatchPacketAck {
+        Operand::Multiplex(Multiplex::V0(_)) => InnerAck::Multiplex { data: ack.clone() },
+        Operand::Batch(Batch::V0(batch)) => InnerAck::Batch(BatchPacketAck {
             instructions: batch.instructions.clone(),
             acknowledgements: <BatchAck>::abi_decode_sequence(ack, false)
-                .context("decoding BatchAck")?
+                .context("decoding BatchAck V0")?
                 .acknowledgements,
         }),
-        Operand::FungibleAssetOrder(_) => InnerAck::FungibleAssetOrder(
+        Operand::FungibleAssetOrder(FungibleAssetOrder::V0(_)) => InnerAck::FungibleAssetOrder(
             <FungibleAssetOrderAck>::abi_decode_sequence(ack, false)
-                .context("decoding FungibleAssetOrderAck")?,
+                .context("decoding FungibleAssetOrderAck V0")?,
+        ),
+        Operand::FungibleAssetOrder(FungibleAssetOrder::V1(_)) => InnerAck::FungibleAssetOrder(
+            <FungibleAssetOrderAck>::abi_decode_sequence(ack, false)
+                .context("decoding FungibleAssetOrderAck V1")?,
         ),
         Operand::Unsupported { data: _ } => InnerAck::Unsupported { data: ack.clone() },
     })
