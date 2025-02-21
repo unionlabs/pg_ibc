@@ -26,7 +26,7 @@ sol! {
     }
 
     #[derive(Serialize, Debug)]
-    struct Forward {
+    struct ForwardV0 {
         uint32 channelId;
         uint64 timeoutHeight;
         uint64 timeoutTimestamp;
@@ -34,7 +34,7 @@ sol! {
     }
 
     #[derive(Serialize, Debug)]
-    struct Multiplex {
+    struct MultiplexV0 {
         bytes sender;
         bool eureka;
         bytes contractAddress;
@@ -42,18 +42,32 @@ sol! {
     }
 
     #[derive(Serialize, Debug)]
-    struct Batch {
+    struct BatchV0 {
         Instruction[] instructions;
     }
 
     #[derive(Serialize, Debug)]
-    struct FungibleAssetOrder {
+    struct FungibleAssetOrderV0 {
         bytes sender;
         bytes receiver;
         bytes baseToken;
         uint256 baseAmount;
         string baseTokenSymbol;
         string baseTokenName;
+        uint256 baseTokenPath;
+        bytes quoteToken;
+        uint256 quoteAmount;
+    }
+
+    #[derive(Serialize, Debug)]
+    struct FungibleAssetOrderV1 {
+        bytes sender;
+        bytes receiver;
+        bytes baseToken;
+        uint256 baseAmount;
+        string baseTokenSymbol;
+        string baseTokenName;
+        uint8 baseTokenDecimals;
         uint256 baseTokenPath;
         bytes quoteToken;
         uint256 quoteAmount;
@@ -82,26 +96,57 @@ impl Serialize for Instruction {
 
 impl Instruction {
     pub fn decode_operand(&self) -> Result<Operand> {
+        println!("version: {}, opcode: {}", self.version, self.opcode);
         Ok(match (self.version, self.opcode) {
-            (0, OP_FORWARD) => Operand::Forward(
-                <Forward>::abi_decode_sequence(&self.operand, false).context("decoding Forward")?,
-            ),
-            (0, OP_MULTIPLEX) => Operand::Multiplex(
-                <Multiplex>::abi_decode_sequence(&self.operand, false)
+            (0, OP_FORWARD) => Operand::Forward(Forward::V0(
+                <ForwardV0>::abi_decode_sequence(&self.operand, false)
+                    .context("decoding Forward")?,
+            )),
+            (0, OP_MULTIPLEX) => Operand::Multiplex(Multiplex::V0(
+                <MultiplexV0>::abi_decode_sequence(&self.operand, false)
                     .context("decoding Multiplex")?,
-            ),
-            (0, OP_BATCH) => Operand::Batch(
-                <Batch>::abi_decode_sequence(&self.operand, false).context("decoding Batch")?,
-            ),
-            (0, OP_FUNGIBLE_ASSET_TRANSFER) => Operand::FungibleAssetOrder(
-                <FungibleAssetOrder>::abi_decode_sequence(&self.operand, false)
+            )),
+            (0, OP_BATCH) => Operand::Batch(Batch::V0(
+                <BatchV0>::abi_decode_sequence(&self.operand, false).context("decoding Batch")?,
+            )),
+            (0, OP_FUNGIBLE_ASSET_TRANSFER) => Operand::FungibleAssetOrder(FungibleAssetOrder::V0(
+                <FungibleAssetOrderV0>::abi_decode_sequence(&self.operand, false)
                     .context("decoding FungibleAssetOrder")?,
-            ),
+            )),
+            (1, OP_FUNGIBLE_ASSET_TRANSFER) => Operand::FungibleAssetOrder(FungibleAssetOrder::V1(
+                <FungibleAssetOrderV1>::abi_decode_sequence(&self.operand, false)
+                    .context("decoding FungibleAssetOrder")?,
+            )),
             _ => Operand::Unsupported {
                 data: self.operand.clone(),
             },
         })
     }
+}
+
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum Forward {
+    V0(ForwardV0),
+}
+
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum Multiplex {
+    V0(MultiplexV0),
+}
+
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum Batch {
+    V0(BatchV0),
+}
+
+#[derive(Serialize, Debug)]
+#[serde(untagged)]
+pub enum FungibleAssetOrder {
+    V0(FungibleAssetOrderV0),
+    V1(FungibleAssetOrderV1),
 }
 
 #[derive(Serialize, Debug)]
@@ -131,7 +176,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn test_parse_ucs03_zkgm_0_with_fungible_asset_transfer_packet() {
+    fn test_parse_ucs03_zkgm_0_with_fungible_asset_transfer_v0_packet() {
         let json = decode(&hex::decode("0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014779877a7b0d9e8603169ddbd7836e478b462478900000000000000000000000000000000000000000000000000000000000000000000000000000000000000044c494e4b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f436861696e4c696e6b20546f6b656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014d1b482d1b947a96e96c9b76d15de34f7f70a20a1000000000000000000000000").unwrap()).unwrap();
 
         dbg!(serde_json::to_string(&json).unwrap());
@@ -157,6 +202,38 @@ mod tests {
               },
               "path": "0x0",
               "salt": "0x0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc"
+            })
+        );
+    }
+
+    #[test]
+    fn test_parse_ucs03_zkgm_0_with_fungible_asset_transfer_v1_packet() {
+        let json = decode(&hex::decode("dddde7c9642e7ecbb7bbe659eff187e8ee6691fd7c840b09a89ec6b126caaaaa000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000001e0000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000002800000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002c0000000000000000000000000000000000000000000000000000000000000000a000000000000000000000000000000000000000000000000000000000000002c756e696f6e316a6b397073796876676b72743263756d7a386579746c6c323234346d326e6e7a34797432673200000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014acbd24742b87c34ded607fb87b22401b2ede167e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000040756e696f6e31677968347464377639366d7563723465616b7364326d7367306a76306d636e396135796a38357678356c376874793374753970737178736a79320000000000000000000000000000000000000000000000000000000000000004414e414d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000963616e696d616e616d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014a56815e60b4e13b937c91ddee677fae1d3955466000000000000000000000000").unwrap()).unwrap();
+
+        dbg!(serde_json::to_string(&json).unwrap());
+
+        assert_eq!(
+            json,
+            json!({
+              "instruction": {
+                "opcode": 3,
+                "operand": {
+                  "_type": "FungibleAssetOrder",
+                  "baseAmount": "0xa",
+                  "baseToken": "0x756e696f6e31677968347464377639366d7563723465616b7364326d7367306a76306d636e396135796a38357678356c376874793374753970737178736a7932",
+                  "baseTokenDecimals": 8,
+                  "baseTokenName": "canimanam",
+                  "baseTokenPath": "0x0",
+                  "baseTokenSymbol": "ANAM",
+                  "quoteAmount": "0xa",
+                  "quoteToken": "0xa56815e60b4e13b937c91ddee677fae1d3955466",
+                  "receiver": "0xacbd24742b87c34ded607fb87b22401b2ede167e",
+                  "sender": "0x756e696f6e316a6b397073796876676b72743263756d7a386579746c6c323234346d326e6e7a347974326732"
+                },
+                "version": 1
+              },
+              "path": "0x0",
+              "salt": "0xdddde7c9642e7ecbb7bbe659eff187e8ee6691fd7c840b09a89ec6b126caaaaa"
             })
         );
     }
