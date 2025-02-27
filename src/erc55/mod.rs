@@ -1,11 +1,9 @@
-use pgrx::pg_extern;
 use alloy_primitives::Address;
+use pgrx::pg_extern;
 
 /// specification: https://eips.ethereum.org/EIPS/eip-55
 #[pg_extern(immutable, parallel_safe)]
-pub fn erc55_to_checksum_0_1(
-    address: &[u8],
-) -> String {
+pub fn erc55_to_checksum_0_1(address: &[u8]) -> String {
     let address: Address = address.try_into().expect("address is not 20 bytes long");
 
     address.to_checksum(None)
@@ -18,7 +16,6 @@ mod tests {
 
     #[test]
     fn testcases_from_spec() {
-
         let test_cases = [
             // All caps
             "0x52908400098527886E0F7030069857D2E4169EE7",
