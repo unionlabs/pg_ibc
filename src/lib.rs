@@ -6,8 +6,10 @@ use serde::Serialize;
 use serde_json::Value;
 use sha3::{Digest, Keccak256};
 
+mod aptos;
 mod cosmos;
 mod create3;
+mod erc55;
 mod instantiate2;
 mod ucs03_zkgm_0;
 
