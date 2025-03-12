@@ -96,7 +96,6 @@ impl Serialize for Instruction {
 
 impl Instruction {
     pub fn decode_operand(&self) -> Result<Operand> {
-        println!("version: {}, opcode: {}", self.version, self.opcode);
         Ok(match (self.version, self.opcode) {
             (0, OP_FORWARD) => Operand::Forward(Forward::V0(
                 <ForwardV0>::abi_decode_sequence(&self.operand, false)

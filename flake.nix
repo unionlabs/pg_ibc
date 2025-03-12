@@ -42,7 +42,7 @@
           };
 
           rust = pkgs.rust-bin.stable."1.76.0".default.override {
-            extensions = [ "rust-src" ];
+            extensions = [ "rust-src" "rust-analyzer" "clippy" ];
           };
 
           craneLib = crane.lib.${system}.overrideToolchain rust;
@@ -75,6 +75,7 @@
               postgresql
               libiconv
               pkg-config
+              rust-analyzer
             ];
             # PGRX_HOME needs an absolute path for `cargo pgrx init` to work, but must be empty when running `nix build`
             # PGRX_HOME="";
