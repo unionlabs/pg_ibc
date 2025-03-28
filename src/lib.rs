@@ -186,7 +186,7 @@ fn decode_packet_ack_0_2(
     ) {
         Ok((packet, packet_hash)) => match &channel_version {
             Some("ucs03-zkgm-0") => {
-                match ucs03_zkgm_0::packet_ack::decode(&packet, ack, &packet_hash, mode) {
+                match ucs03_zkgm_0::packet_ack::decode(&packet.data, ack, &packet_hash, mode) {
                     Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk {
                         result,
                         packet_hash,
@@ -221,6 +221,43 @@ impl Serialize for PacketHash {
         let hex_string = format!("0x{}", hex::encode(self.0)); // Using `hex` crate for hex encoding
         serializer.serialize_str(&hex_string)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[pg_extern(immutable, parallel_safe)]
+fn decode_packet_ack_0_3(
+    channel_version: Option<&str>,
+    packet: Option<&[u8]>,
+    packet_hash: Option<&[u8]>,
+    ack: Option<&[u8]>,
+    mode: Option<&str>,
+) -> pgrx::JsonB {
+    let decode_result = match decode_packet_ack_0_3_validate(packet, packet_hash) {
+        Ok((packet, packet_hash)) => match &channel_version {
+            Some("ucs03-zkgm-0") => {
+                match ucs03_zkgm_0::packet_ack::decode(packet, ack, &packet_hash, mode) {
+                    Ok(result) => DecodeResult::Ok(DecodeResultOk::Decoded(DecodeOk {
+                        result,
+                        packet_hash,
+                    })),
+                    Err(error) => DecodeResult::Error(DecodeResultError::Decoding(DecodingError {
+                        packet_hash,
+                        details: ErrorDetails {
+                            message: error.to_string(),
+                            source: error.source().map(|s| s.to_string()),
+                        },
+                    })),
+                }
+            }
+            _ => DecodeResult::Ok(DecodeResultOk::NoDecoder(NoDecodeOk { packet_hash })),
+        },
+        Err(error) => DecodeResult::Error(DecodeResultError::Hashing(ErrorDetails {
+            message: format!("error calculating hash: {}", error),
+            source: None,
+        })),
+    };
+
+    pgrx::JsonB(serde_json::to_value(decode_result).unwrap())
 }
 
 pub struct PacketPathHash([u8; 32]);
@@ -276,6 +313,22 @@ fn hash_packet(
     let packet_hash = PacketHash(Keccak256::new().chain_update(packet_abi).finalize().into());
 
     Ok((packet, packet_hash))
+}
+
+fn decode_packet_ack_0_3_validate<'a>(
+    packet: Option<&'a [u8]>,
+    packet_hash: Option<&'a [u8]>,
+) -> anyhow::Result<(&'a [u8], PacketHash)> {
+    // source: https://github.com/unionlabs/union/blob/main/lib/ibc-solidity/src/lib.rs
+    let packet_data = packet.ok_or_else(|| anyhow!("packet is required"))?;
+    let packet_hash = PacketHash(
+        packet_hash
+            .ok_or_else(|| anyhow!("packet_hash is required"))?
+            .try_into()
+            .context("validating packet_hash")?,
+    );
+
+    Ok((packet_data, packet_hash))
 }
 
 fn decode_from_eth_abi(input: &[u8], extension_format: &str) -> Result<pgrx::JsonB> {
@@ -696,6 +749,149 @@ mod tests {
                 "source": "decoding zkgm packet"
               },
               "packet_hash": "0x754510cfb7fe3203b902fb49bb66b72f0d0a6fe401e8a2f0fce962a5df9c602d"
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_packet_ack_0_3_success() {
+        let json = decode_packet_ack_0_3(
+            Some("ucs03-zkgm-0"), 
+            Some(&hex::decode("0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000006000000000000000000000000000000000000000000000000000000000000002c00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000000018000000000000000000000000000000000000000000000000000000000000001c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000280000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014e6831e169d77a861a0e71326afa6d80bcc8bc6aa0000000000000000000000000000000000000000000000000000000000000000000000000000000000000014779877a7b0d9e8603169ddbd7836e478b462478900000000000000000000000000000000000000000000000000000000000000000000000000000000000000044c494e4b00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000f436861696e4c696e6b20546f6b656e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000014d1b482d1b947a96e96c9b76d15de34f7f70a20a1000000000000000000000000").unwrap()), 
+            Some(&hex::decode("ebf016a1ecb0c90eb3274f5881089defd65f7f78ea009271d43d0fbbdd25a8e0").unwrap()),
+            Some(&hex::decode("0000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000B0CAD000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000").unwrap()),
+            None);
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "OK",
+              "packet_hash": "0xebf016a1ecb0c90eb3274f5881089defd65f7f78ea009271d43d0fbbdd25a8e0",
+              "result": {
+                "instruction": {
+                  "_ack": {
+                    "_tag": "0x1",
+                    "fillType": "0xb0cad0",
+                    "marketMaker": "0x"
+                  },
+                  "_index": "",
+                  "_instruction_hash": "0xb2be16bee56e5e0929d495b7e536f39706fa5624b15160fe31101a9c5ab4d4c1",
+                  "opcode": 3,
+                  "operand": {
+                    "_type": "FungibleAssetOrder",
+                    "baseAmount": "0x0",
+                    "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
+                    "baseTokenName": "ChainLink Token",
+                    "baseTokenPath": "0x0",
+                    "baseTokenSymbol": "LINK",
+                    "quoteAmount": "0x0",
+                    "quoteToken": "0xd1b482d1b947a96e96c9b76d15de34f7f70a20a1",
+                    "receiver": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa",
+                    "sender": "0xe6831e169d77a861a0e71326afa6d80bcc8bc6aa"
+                  },
+                  "version": 0
+                },
+                "path": "0x0",
+                "salt": "0x0b00dd4772d3b8ebf5add472a720f986c0846c9b9c1c0ed98f1a011df8486bfc"
+              }
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_packet_ack_0_3_error_selecting_decoder() {
+        let json = decode_packet_ack_0_3(
+            Some("does-not-exist"),
+            Some(&hex::decode("0b").unwrap()),
+            Some(
+                &hex::decode("b657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7")
+                    .unwrap(),
+            ),
+            Some(&hex::decode("0b").unwrap()),
+            Some("tree"),
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "OK",
+              "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_packet_ack_0_3_error_parsing_packet_hash() {
+        let json = decode_packet_ack_0_3(
+            Some("does-not-exist"),
+            Some(&hex::decode("0b").unwrap()),
+            Some(&hex::decode("0b").unwrap()),
+            Some(&hex::decode("0b").unwrap()),
+            Some("tree"),
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+                "code": "ERROR",
+                "message": "error calculating hash: validating packet_hash",
+                "phase": "HASHING"
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_packet_ack_0_3_error_missing_value() {
+        let json = decode_packet_ack_0_3(
+            Some("does-not-exist"),
+            Some(&hex::decode("0b").unwrap()),
+            None,
+            Some(&hex::decode("0b").unwrap()),
+            Some("tree"),
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "ERROR",
+              "phase": "HASHING",
+              "message": "error calculating hash: packet_hash is required"
+            })
+        );
+    }
+
+    #[test]
+    fn test_decode_packet_ack_0_3_error_decoding() {
+        let json = decode_packet_ack_0_3(
+            Some("ucs03-zkgm-0"),
+            Some(&hex::decode("0b").unwrap()),
+            Some(
+                &hex::decode("b657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7")
+                    .unwrap(),
+            ),
+            Some(&hex::decode("0b").unwrap()),
+            Some("tree"),
+        );
+
+        dbg!(serde_json::to_string(&json.0).unwrap());
+
+        assert_eq!(
+            json.0,
+            json!({
+              "code": "ERROR",
+              "phase": "DECODING",
+              "details": {
+                "message": "decode packet",
+                "source": "decoding zkgm packet"
+              },
+              "packet_hash": "0xb657bbb5a60e97bd758652762aea1e0196985ce624d6f69d84a25d240db045a7"
             })
         );
     }
