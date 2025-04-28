@@ -11,6 +11,7 @@ mod cosmos;
 mod create3;
 mod erc55;
 mod instantiate2;
+mod osmosis;
 mod ucs03_zkgm_0;
 
 pgrx::pg_module_magic!();
