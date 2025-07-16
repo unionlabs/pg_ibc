@@ -6,3 +6,4 @@
 **/result/**
 result
 .direnv
+/.claude
