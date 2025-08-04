@@ -467,7 +467,7 @@ mod tests {
                 "instruction": {
                   "opcode": 3,
                   "operand": {
-                    "_type": "FungibleAssetOrder",
+                    "_type": "TokenOrder",
                     "baseAmount": "0x0",
                     "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
                     "baseTokenName": "ChainLink Token",
@@ -540,7 +540,7 @@ mod tests {
               "packet_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
               "result": {
                 "innerAck": {
-                  "_type": "FungibleAssetOrder",
+                  "_type": "TokenOrder",
                   "fillType": "0xb0cad0",
                   "marketMaker": "0x"
                 },
@@ -627,7 +627,7 @@ mod tests {
                   "_instruction_hash": "0xb2be16bee56e5e0929d495b7e536f39706fa5624b15160fe31101a9c5ab4d4c1",
                   "opcode": 3,
                   "operand": {
-                    "_type": "FungibleAssetOrder",
+                    "_type": "TokenOrder",
                     "baseAmount": "0x0",
                     "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
                     "baseTokenName": "ChainLink Token",
@@ -780,7 +780,7 @@ mod tests {
                   "_instruction_hash": "0xb2be16bee56e5e0929d495b7e536f39706fa5624b15160fe31101a9c5ab4d4c1",
                   "opcode": 3,
                   "operand": {
-                    "_type": "FungibleAssetOrder",
+                    "_type": "TokenOrder",
                     "baseAmount": "0x0",
                     "baseToken": "0x779877a7b0d9e8603169ddbd7836e478b4624789",
                     "baseTokenName": "ChainLink Token",
