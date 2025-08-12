@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 const OP_FORWARD: u8 = 0x00;
 const OP_CALL: u8 = 0x01;
 const OP_BATCH: u8 = 0x02;
-const OP_TOKEN_ORDER_TRANSFER: u8 = 0x03;
+const OP_TOKEN_ORDER: u8 = 0x03;
 
 const TOKEN_ORDER_KIND_INITIALIZE: u8 = 0x00;
 const TOKEN_ORDER_KIND_ESCROW: u8 = 0x01;
@@ -127,10 +127,10 @@ impl Serialize for TokenOrderV2 {
         // Serialize all standard fields
         state.serialize_field("sender", &self.sender)?;
         state.serialize_field("receiver", &self.receiver)?;
-        state.serialize_field("base_token", &self.baseToken)?;
-        state.serialize_field("base_amount", &self.baseAmount)?;
-        state.serialize_field("quote_token", &self.quoteToken)?;
-        state.serialize_field("quote_amount", &self.quoteAmount)?;
+        state.serialize_field("baseToken", &self.baseToken)?;
+        state.serialize_field("baseAmount", &self.baseAmount)?;
+        state.serialize_field("quoteToken", &self.quoteToken)?;
+        state.serialize_field("quoteAmount", &self.quoteAmount)?;
         state.serialize_field("kind", &self.kind)?;
         state.serialize_field("metadata", &self.metadata)?;
 
@@ -182,15 +182,15 @@ impl Instruction {
             (0, OP_BATCH) => Operand::Batch(Batch::V0(
                 <BatchV0>::abi_decode_sequence(&self.operand, false).context("decoding Batch")?,
             )),
-            (0, OP_TOKEN_ORDER_TRANSFER) => Operand::TokenOrder(TokenOrder::V0(
+            (0, OP_TOKEN_ORDER) => Operand::TokenOrder(TokenOrder::V0(
                 <TokenOrderV0>::abi_decode_sequence(&self.operand, false)
                     .context("decoding TokenOrderV0")?,
             )),
-            (1, OP_TOKEN_ORDER_TRANSFER) => Operand::TokenOrder(TokenOrder::V1(
+            (1, OP_TOKEN_ORDER) => Operand::TokenOrder(TokenOrder::V1(
                 <TokenOrderV1>::abi_decode_sequence(&self.operand, false)
                     .context("decoding TokenOrderV1")?,
             )),
-            (2, OP_TOKEN_ORDER_TRANSFER) => Operand::TokenOrder(TokenOrder::V2(
+            (2, OP_TOKEN_ORDER) => Operand::TokenOrder(TokenOrder::V2(
                 <TokenOrderV2>::abi_decode_sequence(&self.operand, false)
                     .context("decoding TokenOrderV2")?,
             )),
@@ -333,10 +333,10 @@ mod tests {
                     "data": "0x457af738e378cb8e744d0dfef10649e127afd4b54efea50c07782464db619280"
                   },
                   "_type": "TokenOrder",
-                  "base_amount": "0x64",
-                  "base_token": "0x6d756e6f",
-                  "quote_amount": "0x64",
-                  "quote_token": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
+                  "baseAmount": "0x64",
+                  "baseToken": "0x6d756e6f",
+                  "quoteAmount": "0x64",
+                  "quoteToken": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
                   "kind": 1,
                   "metadata": "0x457af738e378cb8e744d0dfef10649e127afd4b54efea50c07782464db619280",
                   "receiver": "0xbe68fc2d8249eb60bfcf0e71d5a0d2f2e292c4ed",
@@ -365,10 +365,10 @@ mod tests {
                   "_type": "TokenOrder",
                   "sender": "0x756e696f6e316a6b397073796876676b72743263756d7a386579746c6c323234346d326e6e7a347974326732",
                   "receiver": "0xbe68fc2d8249eb60bfcf0e71d5a0d2f2e292c4ed",
-                  "base_token": "0x6d756e6f",
-                  "base_amount": "0x64",
-                  "quote_token": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
-                  "quote_amount": "0x64",
+                  "baseToken": "0x6d756e6f",
+                  "baseAmount": "0x64",
+                  "quoteToken": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
+                  "quoteAmount": "0x64",
                   "kind": 0,
                   "metadata": "0x0000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000149c968b805a625303ad43fce99ae72306256fe5f900000000000000000000000000000000000000000000000000000000000000000000000000000000000001829f0385300000000000000000000040cdff51ae7487e0b4a4d6e5f86eb15fb7c1d9f40000000000000000000000005fbe74a283f7954f10aa04c2edf55578811aeb0300000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000001200000000000000000000000000000000000000000000000000000000000001400000000000000000000000000000000000000000000000000000000000000005556e696f6e0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001550000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000140b885dae80342524f34d46b19744e304ec88c99a000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
                   "_metadata": {
@@ -404,7 +404,7 @@ mod tests {
 
         let instruction = Instruction {
             version: 2,
-            opcode: OP_TOKEN_ORDER_TRANSFER,
+            opcode: OP_TOKEN_ORDER,
             operand: <TokenOrderV2>::abi_encode_sequence(&v2_order).into(),
         };
 
@@ -437,10 +437,10 @@ mod tests {
                   "_type": "TokenOrder",
                   "sender": "0x756e696f6e316a6b397073796876676b72743263756d7a386579746c6c323234346d326e6e7a347974326732",
                   "receiver": "0xbe68fc2d8249eb60bfcf0e71d5a0d2f2e292c4ed",
-                  "base_token": "0x6d756e6f",
-                  "base_amount": "0x64",
-                  "quote_token": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
-                  "quote_amount": "0x64",
+                  "baseToken": "0x6d756e6f",
+                  "baseAmount": "0x64",
+                  "quoteToken": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
+                  "quoteAmount": "0x64",
                   "kind": 2,
                   "metadata": "0xcafebabecafebabecafebabecafebabecafebabe",
                   "_metadata": {
@@ -474,7 +474,7 @@ mod tests {
 
         let instruction = Instruction {
             version: 2,
-            opcode: OP_TOKEN_ORDER_TRANSFER,
+            opcode: OP_TOKEN_ORDER,
             operand: <TokenOrderV2>::abi_encode_sequence(&v2_order).into(),
         };
 
@@ -507,10 +507,10 @@ mod tests {
                   "_type": "TokenOrder",
                   "sender": "0x756e696f6e316a6b397073796876676b72743263756d7a386579746c6c323234346d326e6e7a347974326732",
                   "receiver": "0xbe68fc2d8249eb60bfcf0e71d5a0d2f2e292c4ed",
-                  "base_token": "0x6d756e6f",
-                  "base_amount": "0x64",
-                  "quote_token": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
-                  "quote_amount": "0x64",
+                  "baseToken": "0x6d756e6f",
+                  "baseAmount": "0x64",
+                  "quoteToken": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
+                  "quoteAmount": "0x64",
                   "kind": 99,
                   "metadata": "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
                   "_metadata": {
@@ -527,7 +527,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_ucs03_zkgm_0_with_token_order_v2_packet_unparseable_metadata() {
+    fn test_parse_ucs03_zkgm_0_with_token_order_v2_packet_unparsable_metadata() {
         // Create a V2 packet with metadata_type = 1 but invalid metadata that cannot be parsed
         use alloy_sol_types::SolType;
 
@@ -544,7 +544,7 @@ mod tests {
 
         let instruction = Instruction {
             version: 2,
-            opcode: OP_TOKEN_ORDER_TRANSFER,
+            opcode: OP_TOKEN_ORDER,
             operand: <TokenOrderV2>::abi_encode_sequence(&v2_order).into(),
         };
 
@@ -577,10 +577,10 @@ mod tests {
                   "_type": "TokenOrder",
                   "sender": "0x756e696f6e316a6b397073796876676b72743263756d7a386579746c6c323234346d326e6e7a347974326732",
                   "receiver": "0xbe68fc2d8249eb60bfcf0e71d5a0d2f2e292c4ed",
-                  "base_token": "0x6d756e6f",
-                  "base_amount": "0x64",
-                  "quote_token": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
-                  "quote_amount": "0x64",
+                  "baseToken": "0x6d756e6f",
+                  "baseAmount": "0x64",
+                  "quoteToken": "0xba53d2414765913e7b0b47c3ab3fc1e81006e7ba",
+                  "quoteAmount": "0x64",
                   "kind": 0,
                   "metadata": "0xdeadbeef",
                   "_metadata": {
