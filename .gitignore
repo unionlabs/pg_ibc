@@ -6,3 +6,5 @@
 **/result/**
 result
 .direnv
+/.claude
+CLAUDE.md
